@@ -52,7 +52,7 @@ Asking the agent that is about to do the work is not an answer. That's an opinio
 Both checkers live in [`skills/`](skills). They are plain Node scripts — no dependencies, no install step, no network access.
 
 ```bash
-git clone https://github.com/itsmk91/agent-health-checks.git
+git clone https://github.com/workspace-labs/agent-health-checks.git
 cd agent-health-checks
 
 # check the instructions your agents load
@@ -137,4 +137,4 @@ An honest accounting:
 
 ---
 
-<sub>by Workspace Labs · Drawn from a working system, not a thought experiment — see <a href="https://github.com/itsmk91/workspace">a showcase of it running</a>, and the pattern it sits beside: <a href="https://github.com/itsmk91/agent-separation-of-duties">separation of duties for AI agents</a>.</sub>
+<sub>by Workspace Labs · Drawn from a working system, not a thought experiment — see <a href="https://github.com/workspace-labs/workspace">a showcase of it running</a>, and the pattern it sits beside: <a href="https://github.com/workspace-labs/agent-separation-of-duties">separation of duties for AI agents</a>.</sub>
