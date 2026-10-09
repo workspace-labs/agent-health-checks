@@ -2,6 +2,8 @@
 
 **An agent is only as good as the instructions it loads and the code it opens. Almost nobody checks either.**
 
+![Two read-only doctors: the skills checker and the project checker, each shown with its real terminal output](media/health-checks.png)
+
 This is a working pattern for auditing both — with two read-only checkers that produce evidence a person can act on, and no authority to change anything they find.
 
 It is tool-agnostic. Nothing here depends on a particular model, CLI, or framework.
@@ -17,10 +19,6 @@ Both checkers are in this repo — [`skills/`](skills). Two dependency-free Node
 Agents choose a tool by reading its description. So the moment two tools describe overlapping jobs, the choice between them stops being predictable — and that failure doesn't present as a duplicate. It presents as a *random bug*: the same request works on Monday and does something strange on Thursday, and you go looking in the wrong place.
 
 It happens easily. Skills arrive from different sources, get installed months apart, and nobody re-reads the descriptions as a set. An audit of one working toolbox today: **34 skills, and two of them still share a single name.**
-
-![Two different skills sharing one name, caught — and the line underneath: the Doctor never repairs or changes a skill](media/02-skills-finding.png)
-
-*Caught in the author's own toolbox. The only action offered is to hand it to a person.*
 
 The same blind spot hides slower problems. A tool can ship bundled code that runs shell commands, reach the network, point at a reference file that isn't there, or link out of its own folder through a symlink. None of that is visible from the one line an agent reads before loading it.
 
@@ -40,10 +38,6 @@ Asking the agent that is about to do the work is not an answer. That's an opinio
 | **Projects doctor** | The real code of a project | Structure, broken local references, risky patterns, testing gaps, performance signals, maintainability |
 
 **Two, not one.** Instructions and source code are different material with different risks, and one report that mixes them serves neither. Separate checkers get precise triggers, tighter boundaries, and a report you can read in one sitting.
-
-![The skills checker — 34 skills audited, 25 portable, 9 flagged for review, none broken](media/01-skills-doctor.png)
-
-![The projects checker on one project — 597 files read, 0 confirmed, 1 likely, 0 recommendations](media/03-project-doctor.png)
 
 ---
 
@@ -94,10 +88,6 @@ Neither script executes what it inspects, reaches the network, or writes to anyt
 **It fails closed and stays honest about its edges.** A link escaping its own folder is refused and reported, not followed. Scans are bounded — and whatever got skipped for size stays visible in the report rather than quietly counting as clean.
 
 **It says what it cannot prove.** A clean static report is not proof of runtime safety. Saying so is what keeps the clean reports meaningful.
-
-![One finding in full — severity, the file and line, the impact, how to verify it, what to do, and the certainty label](media/04-project-finding.png)
-
-*A real finding in the author's own project. Note the label: **likely**, not confirmed — the report itself asks for runtime confirmation rather than claiming certainty it doesn't have.*
 
 ---
 
