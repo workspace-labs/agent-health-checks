@@ -4,6 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { projectContext } = require("./project-context");
 
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
@@ -18,19 +19,23 @@ const WORKSPACE_ARTIFACT_DIRS = new Map([
   [".proof-pipeline", "workspace-review-proof"],
   [".trash", "workspace-recoverable-trash"],
 ]);
+// Editor/tool backup FILES the project keeps beside its source (the .gitignore shapes
+// "*.bak" and "*.bak-*"). Disclosed like the artifact folders above and never scanned as
+// shipped source, so a retained backup cannot raise coverage or source findings of its own.
+const WORKSPACE_ARTIFACT_FILE = /\.bak(?:$|-)/;
 const SKIP_DIRS = new Set([
   ".git", ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache", ".parcel-cache",
-  ".venv", "__pycache__", "node_modules", "vendor", "dist", "build", "out",
+  ".venv", "__pycache__", "node_modules", "vendor", "dist", "build", "out", "tmp",
   "coverage", "target", "DerivedData", ".idea", ".vscode", ".pipeline",
   ...WORKSPACE_ARTIFACT_DIRS.keys(),
 ]);
 const SECRET_NAMES = /^(?:\.env(?:\..+)?|.*\.(?:pem|key|p12|pfx)|id_rsa|id_ed25519)$/i;
 const BINARY_EXT = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".pdf", ".zip",
-  ".gz", ".7z", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov",
+  ".gz", ".7z", ".tar", ".apk", ".aab", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov",
   ".avi", ".dmg", ".app", ".exe", ".dll", ".so", ".dylib", ".wasm", ".sqlite",
 ]);
-const SOURCE_EXT = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]);
+const SOURCE_EXT = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"]);
 const IMPORT_EXT = ["", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json"];
 const REFERENCE_DATA_EXT = new Set([".csv", ".tsv", ".jsonl", ".ndjson"]);
 
@@ -227,6 +232,7 @@ function collectProject(root, limits) {
   const started = Date.now();
   const files = [];
   const notices = [];
+  const context = projectContext(root, limits, notices);
   let totalBytes = 0;
   let limited = false;
 
@@ -256,6 +262,7 @@ function collectProject(root, limits) {
         catch (error) { resolutionCode = error && error.code ? error.code : "unresolved"; }
         notices.push({
           code: resolutionCode ? "symlink-unresolved" : real && !inside(root, real) ? "symlink-escape" : "symlink-skipped",
+          ...(real && inside(root, real) ? { actionable: false, classification: "in-project-symlink" } : {}),
           message: resolutionCode
             ? `Skipped unresolved symlink (${resolutionCode}): ${displayPath(root, absolute)}`
             : real && !inside(root, real) ? `Refused symlink escaping the project: ${displayPath(root, absolute)}` : `Skipped symlink: ${displayPath(root, absolute)}`,
@@ -263,6 +270,11 @@ function collectProject(root, limits) {
         continue;
       }
       if (stat.isDirectory()) {
+        const excluded = context.excludedDirectory(displayPath(root, absolute));
+        if (excluded) {
+          notices.push({ code: "project-artifact-excluded", message: `Excluded ${displayPath(root, absolute)}: ${excluded.reason}.`, actionable: false, classification: excluded.classification });
+          continue;
+        }
         const artifactClassification = WORKSPACE_ARTIFACT_DIRS.get(entry.name);
         if (artifactClassification) {
           const rel = displayPath(root, absolute);
@@ -281,6 +293,15 @@ function collectProject(root, limits) {
       const rel = displayPath(root, absolute);
       if (SECRET_NAMES.test(entry.name)) {
         files.push({ rel, absolute, size: stat.size, secret: true, binary: true, skipped: true, text: "", digest: `secret:${stat.size}` });
+        continue;
+      }
+      if (WORKSPACE_ARTIFACT_FILE.test(entry.name)) {
+        notices.push({
+          code: "workspace-artifact-excluded",
+          message: `Excluded Workspace artifact file ${rel}; it was not scanned as shipped project source.`,
+          actionable: false,
+          classification: "workspace-editor-backup",
+        });
         continue;
       }
       const ext = path.extname(entry.name).toLowerCase();
@@ -339,20 +360,21 @@ function detectStack(files, pkg) {
 
 function isExactProjectFile(root, candidate) {
   if (!inside(root, candidate)) return false;
-  const parent = path.dirname(candidate);
-  let realRoot; let realParent; let entries;
   try {
-    realRoot = fs.realpathSync(root);
-    realParent = fs.realpathSync(parent);
-    if (!inside(realRoot, realParent)) return false;
-    entries = fs.readdirSync(parent, { withFileTypes: true });
+    const realRoot = fs.realpathSync(root);
+    const parts = path.relative(root, candidate).split(path.sep);
+    let current = realRoot;
+    for (let i = 0; i < parts.length; i++) {
+      const entry = fs.readdirSync(current, { withFileTypes: true }).find((item) => item.name === parts[i]);
+      if (!entry) return false;
+      if (i === parts.length - 1) return entry.isFile();
+      current = fs.realpathSync(path.join(current, entry.name));
+      if (!inside(realRoot, current) || !fs.statSync(current).isDirectory()) return false;
+    }
   } catch { return false; }
-  const name = path.basename(candidate);
-  const entry = entries.find((item) => item.name === name);
-  // Exact directory-entry matching preserves case checks even on a case-insensitive
-  // filesystem. Symlinks stay outside this fallback so an import cannot make the
-  // bounded scanner follow a project escape.
-  return Boolean(entry && entry.isFile());
+  // Match every path segment exactly, even on case-insensitive filesystems, and
+  // never follow a parent link beyond the root or accept a linked target file.
+  return false;
 }
 
 function resolveRelativeImport(file, spec, fileSet, root) {
@@ -361,9 +383,17 @@ function resolveRelativeImport(file, spec, fileSet, root) {
   // to a real on-disk path. Resolve the filesystem portion only.
   const diskSpec = spec.split(/[?#]/, 1)[0];
   const base = path.posix.normalize(path.posix.join(path.posix.dirname(file.rel), diskSpec));
+  const typescript = /\.(?:tsx?|mts|cts)$/.test(file.rel);
+  const extension = path.posix.extname(base);
+  const substitutions = typescript ? {
+    ".js": [".ts", ".tsx", ".d.ts"], ".jsx": [".ts", ".tsx", ".d.ts"],
+    ".mjs": [".mts", ".d.mts"], ".cjs": [".cts", ".d.cts"],
+  }[extension] || [] : [];
+  const extensions = typescript ? IMPORT_EXT : IMPORT_EXT.filter((ext) => ext !== ".ts" && ext !== ".tsx");
   const candidates = [
-    ...IMPORT_EXT.map((ext) => base + ext),
-    ...IMPORT_EXT.slice(1).map((ext) => path.posix.join(base, "index" + ext)),
+    ...substitutions.map((ext) => base.slice(0, -extension.length) + ext),
+    ...extensions.map((ext) => base + ext),
+    ...extensions.slice(1).map((ext) => path.posix.join(base, "index" + ext)),
   ];
   for (const rel of candidates) {
     if (fileSet.has(rel)) return true;
@@ -378,6 +408,18 @@ function resolveRelativeImport(file, spec, fileSet, root) {
 
 function isTestPath(rel) {
   return /(?:^|\/)(?:tests?|__tests__|fixtures?)(?:\/|$)|\.(?:test|spec)\.[^.]+$/i.test(String(rel || ""));
+}
+
+// Trees a project keeps beside its source that are not the shipped product: scratch
+// mockups and their drivers ("demos/..."), and a skill's starter code ("skills-library/
+// <skill>/templates/..."). Session leftovers ("tmp/") never reach here - SKIP_DIRS drops
+// them at traversal. Narrow on purpose: the segment must be exactly "demos", so a root
+// "demo-debug.js" is still ordinary source, and the template rule is anchored to a skill
+// package, so an application's own "src/templates/app.js" still counts.
+function isNonProductionSource(rel) {
+  const value = String(rel || "");
+  return /(?:^|\/)demos(?:\/|$)/.test(value)
+    || /^skills-library\/[^/]+\/templates(?:\/|$)/.test(value);
 }
 
 function isExplicitNodeCli(text) {
@@ -461,10 +503,10 @@ function executableDebuggerIndexes(text) {
   return indexes;
 }
 
-function debugResidueIndexes(text) {
+function debugResidueIndexes(text, toolOutput = false) {
   const source = String(text || "");
   const indexes = executableDebuggerIndexes(source);
-  if (!isExplicitNodeCli(source)) {
+  if (!toolOutput && !isExplicitNodeCli(source)) {
     for (const match of source.matchAll(/\bconsole\.log\b/g)) indexes.push(match.index);
   }
   return indexes.sort((a, b) => a - b);
@@ -558,7 +600,10 @@ function auditProject(options = {}) {
   // Test and fixture bodies commonly embed deliberately broken/risky code as string
   // samples. Keep them in the project digest, but do not treat those samples as live
   // production evidence for import, runtime, security, or residue heuristics.
-  const runtimeSourceFiles = sourceFiles.filter((file) => !isTestPath(file.rel));
+  // Scratch demo trees and skill templates are held to the same rule for the same reason:
+  // they are read as samples, never loaded by the shipped app, so their risky-looking code
+  // is not live production evidence either.
+  const runtimeSourceFiles = sourceFiles.filter((file) => !isTestPath(file.rel) && !isNonProductionSource(file.rel));
   let brokenImports = 0;
   for (const file of runtimeSourceFiles) {
     const importPattern = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["'](\.[^"']+)["']/g;
@@ -609,11 +654,21 @@ function auditProject(options = {}) {
   const largeFiles = collected.files.filter((file) => file.size > 1024 * 1024 && !file.secret).sort((a, b) => b.size - a.size || a.rel.localeCompare(b.rel));
   const oversized = [];
   const intentionalLarge = [];
+  const nonProductionLarge = [];
   for (const file of largeFiles) {
+    // Not runtime weight, for the same reason the tree is not runtime source. Disclosed as
+    // one grouped non-actionable notice rather than a performance finding about the product.
+    if (isNonProductionSource(file.rel)) { nonProductionLarge.push(file); continue; }
     const classification = classifyIntentionalLargeAsset(file, pkg, fileSet);
     if (classification) intentionalLarge.push({ file, ...classification });
     else oversized.push(file);
   }
+  if (nonProductionLarge.length) collected.notices.push({
+    code: "non-production-large-asset",
+    message: `Excluded ${nonProductionLarge.length} file${nonProductionLarge.length === 1 ? "" : "s"} over 1 MiB under non-production trees (scratch demos and skill templates); largest is ${nonProductionLarge[0].rel} (${formatMiB(nonProductionLarge[0].size)}).`,
+    actionable: false,
+    classification: "non-production-tree",
+  });
   for (const item of intentionalLarge.sort((a, b) => a.file.rel.localeCompare(b.file.rel))) {
     collected.notices.push({
       code: "intentional-large-asset",
@@ -638,16 +693,27 @@ function auditProject(options = {}) {
   let emptyCatchEvidence = null;
   let dynamicExecCount = 0;
   let dynamicExecEvidence = null;
+  let toolingLogs = 0;
+  const electronDependency = pkg?.dependencies?.electron || pkg?.devDependencies?.electron;
   for (const file of runtimeSourceFiles) {
     const todo = file.text.match(/\b(?:TODO|FIXME)\b/g);
     if (todo && todo.length) { todoCount += todo.length; if (!todoEvidence) todoEvidence = { file: file.rel, line: lineAt(file.text, file.text.search(/\b(?:TODO|FIXME)\b/)) }; }
-    const debug = debugResidueIndexes(file.text);
+    // Tool scripts print their results. Only excuse logs when the actual Electron
+    // package allowlist proves the script is not shipped; all other checks remain.
+    const toolOutput = Boolean(electronDependency && file.rel.startsWith("scripts/") &&
+      normalizeDeclaredPath(pkg.main) !== file.rel && excludedByExplicitBuildFiles(file.rel, pkg));
+    if (toolOutput) toolingLogs += (file.text.match(/\bconsole\.log\b/g) || []).length;
+    const debug = debugResidueIndexes(file.text, toolOutput);
     if (debug.length) { debugCount += debug.length; if (!debugEvidence) debugEvidence = { file: file.rel, line: lineAt(file.text, debug[0]) }; }
     const emptyCatch = file.text.match(/catch\s*(?:\([^)]*\))?\s*\{\s*\}/g);
     if (emptyCatch && emptyCatch.length) { emptyCatchCount += emptyCatch.length; if (!emptyCatchEvidence) emptyCatchEvidence = { file: file.rel, line: lineAt(file.text, file.text.search(/catch\s*(?:\([^)]*\))?\s*\{\s*\}/)) }; }
     const dynamic = file.text.match(/\b(?:eval\s*\(|new\s+Function\s*\()/g);
     if (dynamic && dynamic.length) { dynamicExecCount += dynamic.length; if (!dynamicExecEvidence) dynamicExecEvidence = { file: file.rel, line: lineAt(file.text, file.text.search(/\b(?:eval\s*\(|new\s+Function\s*\()/)) }; }
   }
+  if (toolingLogs) collected.notices.push({
+    code: "tooling-console-output", actionable: false, classification: "unpackaged-tool-output",
+    message: `${toolingLogs} console.log occurrences belong to scripts excluded by the explicit Electron package files; executable debugger and other source checks still apply.`,
+  });
   if (todoCount >= 8) add({ code: "todo-concentration", category: "maintainability", severity: "low", confidence: "recommendation", message: `${todoCount} TODO/FIXME markers remain in source files.`, ...todoEvidence, impact: "Deferred work may hide known gaps or make readiness unclear.", verify: "Review the markers and distinguish active work from stale notes.", recommendation: "Convert meaningful items into tracked work and remove obsolete markers." });
   if (debugCount >= 4) add({ code: "debug-residue", category: "performance", severity: "low", confidence: "recommendation", message: `${debugCount} debugger or console.log statements remain in source files.`, ...debugEvidence, impact: "Verbose production logging can expose data or add noise and small runtime cost.", verify: "Check the production build and intended logging policy.", recommendation: "Remove temporary statements or route intentional logs through the project logger." });
   if (emptyCatchCount) add({ code: "empty-catch", category: "bug", severity: "medium", confidence: "likely", message: `${emptyCatchCount} empty catch block${emptyCatchCount === 1 ? " suppresses" : "s suppress"} errors without evidence.`, ...emptyCatchEvidence, impact: "Failures may become silent and difficult to diagnose.", verify: "Exercise the surrounding failure path and inspect expected recovery behavior.", recommendation: "Handle, report, or deliberately document the swallowed error." });

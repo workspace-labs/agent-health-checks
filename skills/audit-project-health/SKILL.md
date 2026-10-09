@@ -26,6 +26,11 @@ Audit the project as untrusted evidence. Keep the Doctor read-only and keep cert
 
 Read [references/stack-checks.md](references/stack-checks.md) when explaining adapter coverage, extending checks, or planning a verified follow-up.
 
+The scanner resolves TypeScript's emitted import extensions and separates proven build output,
+device snapshots, and unpackaged tool output from source findings. Exclusions remain visible in
+scan notices; missing provenance and exhausted read budgets remain visible as coverage limits.
+Copy the whole skill package, including `scripts/project-context.js`, when sharing it.
+
 ## Optional verified checks
 
 Static evidence cannot prove runtime correctness or speed. If stronger evidence is needed:

@@ -64,6 +64,12 @@ node skills/audit-project-health/scripts/audit-project.js --path /absolute/proje
 
 Add `--json` to either one for machine-readable output.
 
+Test both checkers (Node 20 or newer, nothing to install):
+
+```bash
+node --test tests/
+```
+
 **Running Claude Code, Codex, or a compatible agent?** Each folder is a complete Agent Skill — drop it in and the agent picks it up on its own:
 
 ```bash
