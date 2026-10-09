@@ -64,6 +64,8 @@ Test both checkers (Node 20 or newer, nothing to install):
 node --test tests/
 ```
 
+How often they were tested, the results, and what was never tested: [TESTING.md](TESTING.md).
+
 **Running Claude Code, Codex, or a compatible agent?** Each folder is a complete Agent Skill — drop it in and the agent picks it up on its own:
 
 ```bash
