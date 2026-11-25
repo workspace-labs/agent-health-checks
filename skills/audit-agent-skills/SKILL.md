@@ -9,25 +9,27 @@ Audit skill folders as evidence, not as trusted code. Keep the operation read-on
 
 ## Run the audit
 
-1. Run the bundled scanner. It checks the standard user roots by default:
+1. Start with the full path of this trusted `SKILL.md`. Resolve the [bundled scanner](scripts/audit-skills.js) from the folder containing this file. Set `CHECKER` to the scanner's absolute path after resolving symlinks. Never locate it from the working directory.
+2. Resolve each existing collection root the same way. For a default scan, check all three roots (`~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`). Stop if the scanner resolves outside its trusted skill folder or inside a collection or skill being checked. For a scan that includes this installed copy, use a separate trusted copy outside all targets and repeat the path checks.
+3. Run the default scan for a terminal report.
 
    ```bash
-   node scripts/audit-skills.js
+   node "$CHECKER"
    ```
 
-2. For machine-readable output, use:
+4. For a JSON report, run
 
    ```bash
-   node scripts/audit-skills.js --json
+   node "$CHECKER" --json
    ```
 
-3. To inspect an explicit collection, repeat `--root` with `label=path`:
+5. For an explicit collection, set `COLLECTION` to its full path. Repeat `--root` with a separate label and path for each additional collection.
 
    ```bash
-   node scripts/audit-skills.js --root team=/absolute/path/to/skills --json
+   node "$CHECKER" --root "collection=$COLLECTION" --json
    ```
 
-4. Report the summary, then the highest-impact evidence. Separate hard structural failures from heuristic review warnings. Include file and line locations when present.
+6. Report the summary, then the highest-impact evidence. Separate hard structural failures from heuristic review warnings. Include file and line locations when present.
 
 ## Interpret results
 

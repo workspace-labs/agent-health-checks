@@ -7,6 +7,7 @@ const os = require("os");
 const crypto = require("crypto");
 
 const AXES = ["structure", "triggers", "safety", "portability", "claude", "codex"];
+const CHECKER_VERSION = "0.2.0";
 const DEFAULT_LIMITS = Object.freeze({ maxFiles: 320, maxFileBytes: 1024 * 1024, maxTotalBytes: 6 * 1024 * 1024 });
 const BINARY_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".pdf", ".zip", ".gz", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov"]);
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", "vendor", "__pycache__"]);
@@ -363,6 +364,7 @@ function auditSkillRoots(options = {}) {
   unique.forEach((skill) => { statuses[skill.statusKey] = (statuses[skill.statusKey] || 0) + 1; });
   return {
     schemaVersion: 1,
+    checkerVersion: CHECKER_VERSION,
     generatedAt: new Date().toISOString(),
     readOnly: true,
     disclaimer: "Static contract evidence only — no scripts executed, no network used, and no runtime behavior guaranteed.",
@@ -377,6 +379,7 @@ function parseCli(argv) {
   let json = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--json") json = true;
+    else if (argv[i] === "--version") return { version: true };
     else if (argv[i] === "--root") {
       const spec = argv[++i] || "";
       const split = spec.indexOf("=");
@@ -402,6 +405,10 @@ function printHuman(report) {
 if (require.main === module) {
   try {
     const cli = parseCli(process.argv.slice(2));
+    if (cli.version) {
+      console.log(CHECKER_VERSION);
+      process.exit(0);
+    }
     if (cli.help) {
       console.log("Usage: node scripts/audit-skills.js [--json] [--root label=/absolute/path]");
       process.exit(0);

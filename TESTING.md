@@ -6,11 +6,12 @@ Every number below comes from a run that actually happened. Nothing is rounded u
 ## Run the tests yourself
 
 ```bash
-node --test tests/
+node --test
 ```
 
-Node 20 or newer. Nothing to install. The tests build small throwaway projects and skills
-in your temp folder and delete nothing else.
+Run from the repository root. The suite uses Node’s built-in test runner and creates its fixtures in the system temporary directory. See the dated runs below for the exact versions tested.
+
+### Original 98 tests
 
 | Test file | Checks | Tests |
 |---|---|---:|
@@ -66,9 +67,22 @@ The suite was then run **5 times in a row** on the current copy:
 
 Environment: macOS 27.0.1, Apple silicon (arm64), Node 20.20.2.
 
+### Foundation release (2026-11-25)
+
+On macOS, the original suite at `9c9a5b7` and the expanded 0.2.0 suite both ran from the repository root with `node --test`.
+
+| Node | Original suite | 0.2.0 suite | Failed | Skipped |
+|---|---:|---:|---:|---:|
+| 20.20.2 | 98/98 | 109/109 | 0 | 0 |
+| 22.23.1 | 98/98 | 109/109 | 0 | 0 |
+| 24.22.1 | 98/98 | 109/109 | 0 | 0 |
+| 26.13.1 | 98/98 | 109/109 | 0 | 0 |
+
+The 11 new tests cover release agreement, report formats and finding identity, command exit codes, and the scan commands in both skill guides. The command test also runs inside a sample project that carries its own same-named scripts.
+
 ## Running the checkers on real material
 
-The same day, both checkers were run on real material, not test fixtures:
+On 2026-10-09, both checkers were run on real material, not test fixtures:
 
 - **Skills checker** on a real toolbox of 66 skills: 34 universal, 26 needing review,
   4 broken. Example: two different skills sharing the name `frontend-design`.

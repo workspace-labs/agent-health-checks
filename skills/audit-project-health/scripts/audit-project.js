@@ -6,6 +6,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { projectContext } = require("./project-context");
 
+const CHECKER_VERSION = "0.2.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,
@@ -532,7 +533,7 @@ function auditProject(options = {}) {
       recommendation: "Correct the project path or restore access, then scan again.",
     });
     return {
-      schemaVersion: 1, readOnly: true, projectId, projectName, root: requested,
+      schemaVersion: 1, checkerVersion: CHECKER_VERSION, readOnly: true, projectId, projectName, root: requested,
       digest: reportDigest, status: "Unavailable", statusKey: "unavailable", stack: ["Unknown"],
       summary: { findings: 1, confirmed: 1, likely: 0, recommendation: 0, high: 1 },
       findings: [finding], notices: [], limits, fileCount: 0, totalBytes: 0, durationMs: 0,
@@ -745,7 +746,7 @@ function auditProject(options = {}) {
   const status = confirmed || high ? "Needs attention" : findings.length ? "Watch" : "Healthy";
   const statusKey = status === "Needs attention" ? "attention" : status.toLowerCase();
   return {
-    schemaVersion: 1, readOnly: true, projectId, projectName, root, digest: reportDigest,
+    schemaVersion: 1, checkerVersion: CHECKER_VERSION, readOnly: true, projectId, projectName, root, digest: reportDigest,
     status, statusKey, stack,
     summary: { findings: findings.length, confirmed, likely, recommendation, high },
     findings, notices: collected.notices, limits, fileCount: collected.files.length,
@@ -764,6 +765,7 @@ function parseArgs(argv) {
   const out = { json: false, projectPath: "", projectId: "", projectName: "" };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--json") out.json = true;
+    else if (argv[i] === "--version") out.version = true;
     else if (argv[i] === "--path") out.projectPath = argv[++i] || "";
     else if (argv[i] === "--id") out.projectId = argv[++i] || "";
     else if (argv[i] === "--name") out.projectName = argv[++i] || "";
@@ -798,6 +800,10 @@ function humanReport(report) {
 
 if (require.main === module) {
   const args = parseArgs(process.argv.slice(2));
+  if (args.version) {
+    console.log(CHECKER_VERSION);
+    process.exit(0);
+  }
   if (args.help) {
     process.stdout.write("Usage: node scripts/audit-project.js --path /absolute/project [--json] [--id id] [--name name]\n");
     process.exit(0);
