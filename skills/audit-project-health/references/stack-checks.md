@@ -21,7 +21,7 @@ and oversized real source remains actionable; lookalike names such as `backup.js
 are still scanned, and a secret-shaped backup name such as `.env.bak` is still reported as
 secret-like without reading its value.
 
-Relative-import checks use the bounded file index first, then exact in-root filesystem metadata when a valid target may fall beyond a file, byte, or time bound. The fallback reads no target content, preserves filename-case checks on case-insensitive filesystems, and refuses symlink targets or parent paths that escape the explicit project root. A missing target remains a Confirmed finding even when the wider scan is incomplete. Nested `.backup-install` dependency caches are skipped so temporary package trees do not consume the project budget.
+Relative-import checks use the bounded file index first, then exact in-root filesystem metadata when a valid target may fall beyond a file or byte bound. The fallback reads no target content, preserves filename-case checks on case-insensitive filesystems, and refuses symlink targets or parent paths that escape the explicit project root. A verified absence can still be confirmed after a file or byte limit. Expiry of the whole-audit time budget stops further checks and suppresses missing-file findings. Nested `.backup-install` dependency caches are skipped so temporary package trees do not consume the project budget.
 
 TypeScript `.ts`, `.tsx`, `.mts`, and `.cts` sources may import emitted JavaScript paths:
 `.js`/`.jsx` resolve to `.ts`, `.tsx`, or `.d.ts`, `.mjs` to `.mts` or `.d.mts`, and `.cjs`
@@ -45,7 +45,11 @@ size still counts in large-file checks unless their artifact role is separately 
 
 Files above 1 MiB remain actionable unless their role is proven by project evidence. Exact declared build icons, their matching iconset inputs, `-src` image masters with an optimized sibling explicitly listed in `build.files`, and ZIPs in an explicit `*-zips/` distribution folder with a matching unpacked source directory are disclosed as non-actionable scan-boundary notices. Names or extensions alone never earn the exemption, and the global threshold is unchanged.
 
-A project keeps trees beside its source that are not the shipped product, and their sample code is not production evidence. Scratch mockups and their drivers (a `demos/` path segment) and a skill package's starter code (`skills-library/<skill>/templates/`) are excluded from the runtime source rules the same way `tests/` already is, so their `console.log`, empty catches, `eval`, broken relative imports, TODO markers, and Electron `webPreferences` samples raise no findings, and their assets over 1 MiB are disclosed as one non-actionable notice instead of a performance finding. Session leftovers (`tmp/`) are dropped at traversal beside `dist`, `build`, and `out`, so they consume no scan budget. The exclusions are narrow by construction: the segment must be exactly `demos`, so a root `demo-debug.js` is still ordinary source, and the template rule is anchored to a skill package, so an application's own `src/templates/app.js` still counts. The two sample trees stay in the project digest, so a change under `demos/` or a skill's `templates/` still moves it; `tmp/` is dropped before any file is collected, so it is deliberately outside the digest and a change there does not move it.
+A project keeps trees beside its source that are not the shipped product, and their sample code is not production evidence. Scratch mockups and their drivers (a `demos/` path segment) and a skill package's starter code (`skills-library/<skill>/templates/`) are excluded from the runtime source rules the same way `tests/` already is, so their `console.log`, empty catches, `eval`, broken relative imports, TODO markers, and Electron `webPreferences` samples raise no findings, and their assets over 1 MiB are disclosed as one non-actionable notice instead of a performance finding. Top-level session leftovers (`tmp/`) are dropped at traversal beside `dist`, `build`, and `out`, so they consume no scan budget. The exclusions are narrow by construction: the segment must be exactly `demos`, so a root `demo-debug.js` is still ordinary source, and the template rule is anchored to a skill package, so an application's own `src/templates/app.js` still counts. The two sample trees stay in the project digest, so a change under `demos/` or a skill's `templates/` still moves it; `tmp/` is dropped before any file is collected, so it is deliberately outside the digest and a change there does not move it.
+
+The coverage notice counts distinct runtime files reached by the JavaScript and TypeScript rules. Other recognized languages appear by name. Nested packages are listed together because only the root package receives project-level checks. Dependency and tool-cache names apply at any depth. The output names `dist`, `build`, `out`, `tmp`, `target`, `coverage` and `vendor` apply at the root. A nested output needs evidence from project settings. The grouped folder notice identifies encountered name-based exclusions and sample trees.
+
+The root Git ignore file and local Git exclude file supply literal root-folder exclusions, including optional leading slashes. A negation disables that file independently. Operating-system metadata files are omitted. See the protected-name list in the skill guide for credential handling.
 
 ## Stack adapters
 
@@ -53,7 +57,7 @@ A project keeps trees beside its source that are not the shipped product, and th
 - **React / Next.js**: JavaScript checks plus large client assets and plain image loading opportunities.
 - **Electron**: JavaScript checks plus `nodeIntegration`, `contextIsolation`, `sandbox`, and `webSecurity` evidence.
 - **PWA**: manifest and service-worker presence when package metadata advertises PWA tooling.
-- **Generic**: README, oversized files, TODO/FIXME concentration, secret-file presence without reading values, and bounded-scan notices.
+- **Generic**: README, oversized files, secret-file presence without reading values, and bounded-scan notices.
 
 Adapters intentionally prefer a small explainable rule set over broad regex guessing. Extend the scanner only with a deterministic fixture proving the rule and its false-positive boundary.
 
@@ -61,7 +65,7 @@ For an Electron project, `console.log` in root `scripts/` is treated as tool out
 explicit, understood `build.files` allowlist excludes the file and it is not the app entry. These
 occurrences are disclosed together in scan notices. Executable `debugger`, imports, security
 patterns, and all other source checks still apply there; packaged scripts and ordinary source
-retain console detection.
+retain console detection. A Node shebang, a live `require.main === module` entry, a declared package command, or a script that invokes the file supplies additional evidence of command-line output.
 
 ## Confidence rules
 

@@ -204,7 +204,7 @@ eval('fixture');
   assert.deepEqual([...new Set(notices.map((notice) => notice.classification))].sort(), [
     "workspace-install-backup", "workspace-recoverable-trash", "workspace-review-proof", "workspace-task-backup",
   ]);
-  assert.match(humanReport(report), /Scan boundaries \(5\)/);
+  assert.match(humanReport(report), /Scan boundaries \(7\)/);
   assert.match(humanReport(report), /workspace-review-proof.*\.proof-pipeline/);
 });
 

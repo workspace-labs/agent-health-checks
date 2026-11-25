@@ -52,7 +52,7 @@ The CommonJS module exports the functions `auditSkillRoots`, `parseFrontmatter` 
 | `summary` | Integer counts named `findings`, `confirmed`, `likely`, `recommendation` and `high`. The last counts both high and critical findings. |
 | `findings`, `notices` | Arrays. Each notice carries `code` and `message` and may include `actionable` and `classification`. |
 | `limits` | Numeric bounds named `maxFiles`, `maxFileBytes`, `maxTotalBytes` and `maxDurationMs`. |
-| `fileCount`, `totalBytes`, `durationMs`, `disclaimer` | Collected file count, bytes counted by the scan, collection time in milliseconds and a static-analysis disclaimer. |
+| `fileCount`, `totalBytes`, `durationMs`, `disclaimer` | Collected file count, bytes counted by the scan, elapsed wall time for the whole audit in milliseconds (including rules and report preparation) and a static-analysis disclaimer. |
 
 Status keys and labels are `healthy` (Healthy), `watch` (Watch), `attention` (Needs attention) and `unavailable` (Unavailable). A confirmed or high/critical finding produces Needs attention. Other findings produce Watch. An accessible project with zero findings reports Healthy.
 
@@ -60,7 +60,7 @@ Each finding has `code`, `category`, `severity`, `confidence`, `message`, `file`
 
 **Identity.** Resolve a project finding using the report's `digest` together with its finding `id`. The ID is the first 24 lowercase hex characters of SHA-256 over the UTF-8 JSON object containing `reportDigest` followed by the ten finding fields listed above in order, ending with `recommendation`. This makes the rule code, exact message, location and all other finding text significant. Project findings have no axis or list of install locations.
 
-The report digest hashes the collected relative paths paired with their file digests, sorted by `localeCompare` on the paths. A NUL separates each path and digest and each pair. Read file bytes contribute a SHA-256 hex digest. Recognized binary extensions, protected names and oversized files contribute size markers such as `binary:3`, `secret:4` and `oversized:5`. An empty collection hashes `empty:<real root>`. An unavailable root hashes `unavailable:<requested absolute path>:<error message>`. Locale can affect ordering, and an unavailable digest depends on the path and error text.
+The report digest hashes the collected relative paths paired with their file digests, sorted in UTF-16 code-unit order on the paths. A NUL separates each path and digest and each pair. Read file bytes contribute a SHA-256 hex digest. Recognized binary extensions, protected names and oversized files contribute size markers such as `binary:3`, `secret:4` and `oversized:5`. An empty collection hashes `empty:<real root>`. An unavailable root hashes `unavailable:<requested absolute path>:<error message>`. An unavailable digest depends on the path and error text. Desktop metadata files (`.DS_Store`, `Thumbs.db`, and `desktop.ini`) contribute neither paths nor bytes.
 
 **CLI.** A completed report exits 0 for every status, including Needs attention and Unavailable. Omitting the required path exits 2. Standalone help and version requests exit 0.
 
@@ -90,3 +90,19 @@ These notices have `actionable: false` and do not count toward the findings tota
 `<field>` is `main` or `bin`. The possible subjects are `Root README.md`, `Dependency lockfile`, `Source service worker`, `package.json main entry <entry>` and `package.json bin entry <entry>`. The overflow notice requires at least 25 broken imports. A binary-looking package.json can produce both a skipped-file notice and a finding about its encoding.
 
 Each audit allows 1,024 additional directory listings and link-target reads for name checks. Cached results remain available after the budget runs out. A lookup that still requires disk access is reported as unchecked. External relative imports use names and file types only. An external link whose target would need inspection also gets an unchecked notice.
+
+
+### Project rules and notices added in 0.5.0
+
+| Code | Where it appears | Exact message template |
+|---|---|---|
+| `code-coverage` | Notice in every report | `Code rules examined <n> JavaScript/TypeScript file(s). Other languages seen but not examined: <languages or none>.` |
+| `code-not-examined` | Low coverage finding, recommendation | `<languages> code was not examined.` |
+| `nested-packages-not-judged` | Notice | `Nested packages were not judged: <paths>.` |
+| `folders-not-judged` | Notice | `Code rules excluded <n> folder(s): <paths>.` |
+| `git-ignored-folders` | Notice | `Git ignore rules excluded <n> folder(s): <paths>.` |
+| `package-not-examined` | Low coverage finding, recommendation | `The root package.json was not examined because <reason>.` |
+
+Use the singular noun for one and plural for every other count. Paths and languages use fixed code-unit order, separated by a comma and a space. The two package processing reasons are `its nesting exceeds 256 levels` and `its metadata could not be processed`. Syntax errors in ordinary JSON retain the parser diagnostic. All four new notices carry `actionable: false`. They add no findings. In a mixed project the coverage notice names languages whose code received no rules.
+
+For several protected files, `secret-files-present` keeps the first path as its evidence location and appends the sorted paths to its verification instruction. The time bound covers collection and rules. A time stop uses the existing `scan-limit` message. The scanner suppresses missing-file findings on a time stop. The manifest check also suppresses a missing verdict when traversal was incomplete.

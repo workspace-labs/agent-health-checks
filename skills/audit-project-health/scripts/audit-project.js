@@ -4,12 +4,13 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { projectContext } = require("./project-context");
+const { projectContext, gitInfoExclude, addLiteralIgnoreFolders } = require("./project-context");
+const { electronRules, executableEvidence, isExplicitNodeCli } = require("./source-evidence");
 const { createPathProbe, resolveNodeEntry } = require("./project-paths");
 const { relativeImportLiterals } = require("./import-context");
-const { hasUtf16Mark, packageReadProblem, parsePackageText } = require("./package-text");
+const { hasUtf16Mark, packageReadProblem, parsePackage } = require("./package-text");
 
-const CHECKER_VERSION = "0.4.0";
+const CHECKER_VERSION = "0.5.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,
@@ -29,17 +30,31 @@ const WORKSPACE_ARTIFACT_DIRS = new Map([
 const WORKSPACE_ARTIFACT_FILE = /\.bak(?:$|-)/;
 const SKIP_DIRS = new Set([
   ".git", ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache", ".parcel-cache",
-  ".venv", "__pycache__", "node_modules", "vendor", "dist", "build", "out", "tmp",
-  "coverage", "target", "DerivedData", ".idea", ".vscode", ".pipeline",
+  ".venv", "__pycache__", "node_modules", "DerivedData", ".idea", ".vscode", ".pipeline",
   ...WORKSPACE_ARTIFACT_DIRS.keys(),
 ]);
-const SECRET_NAMES = /^(?:\.env(?:\..+)?|.*\.(?:pem|key|p12|pfx)|id_rsa|id_ed25519)$/i;
+const ROOT_OUTPUT_DIRS = new Set(["vendor", "dist", "build", "out", "tmp", "coverage", "target"]);
+const SECRET_NAMES = /^(?:\.env(?:\..+)?|.*\.(?:pem|key|p12|pfx|keystore|jks)|id_(?:rsa|ed25519|ecdsa|dsa)|\.(?:npmrc|netrc|pypirc|git-credentials)|credentials\.json)$/i;
+const TEMPLATE_SUFFIX = /\.(?:example|sample|template|dist)$/i;
+const DESKTOP_METADATA = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 const BINARY_EXT = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".pdf", ".zip",
   ".gz", ".7z", ".tar", ".apk", ".aab", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov",
   ".avi", ".dmg", ".app", ".exe", ".dll", ".so", ".dylib", ".wasm", ".sqlite",
 ]);
 const SOURCE_EXT = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"]);
+// Recognize other source languages by filename without claiming to analyze them.
+const OTHER_LANGUAGES = new Map(Object.entries({
+  ".py": "Python", ".pyi": "Python", ".go": "Go", ".rs": "Rust", ".swift": "Swift", ".php": "PHP",
+  ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".cs": "C#", ".c": "C", ".h": "C/C++",
+  ".cc": "C++", ".cpp": "C++", ".cxx": "C++", ".hpp": "C++", ".m": "Objective-C/MATLAB", ".mm": "Objective-C++",
+  ".dart": "Dart", ".rb": "Ruby", ".pl": "Perl", ".pm": "Perl", ".lua": "Lua", ".r": "R",
+  ".scala": "Scala", ".groovy": "Groovy", ".ex": "Elixir", ".exs": "Elixir", ".erl": "Erlang",
+  ".hs": "Haskell", ".clj": "Clojure", ".fs": "F#", ".fsx": "F#", ".jl": "Julia", ".zig": "Zig",
+  ".sh": "Shell", ".bash": "Shell", ".zsh": "Shell", ".fish": "Shell", ".ps1": "PowerShell",
+  ".html": "HTML", ".htm": "HTML", ".css": "CSS", ".scss": "Sass", ".sass": "Sass", ".less": "Less",
+  ".vue": "Vue", ".svelte": "Svelte", ".astro": "Astro", ".sql": "SQL",
+}));
 const IMPORT_EXT = ["", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json"];
 const REFERENCE_DATA_EXT = new Set([".csv", ".tsv", ".jsonl", ".ndjson"]);
 
@@ -55,6 +70,15 @@ function normalizeLimits(input = {}) {
 function displayPath(root, absolute) {
   const rel = path.relative(root, absolute).split(path.sep).join("/");
   return rel || ".";
+}
+
+function compareNames(left, right) {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function isProtectedFile(name, rel) {
+  return !TEMPLATE_SUFFIX.test(name) && (SECRET_NAMES.test(name) || /(?:^|\/)\.aws\/credentials$/i.test(rel));
 }
 
 function inside(parent, child) {
@@ -232,13 +256,24 @@ function makeFinding(reportDigest, data) {
   return finding;
 }
 
-function collectProject(root, limits, rootEntries) {
-  const started = Date.now();
+function coverageNotice(count, languages) {
+  return {
+    code: "code-coverage", actionable: false,
+    message: `Code rules examined ${count} JavaScript/TypeScript file${count === 1 ? "" : "s"}. Other languages seen but not examined: ${languages || "none"}.`,
+  };
+}
+
+function collectProject(root, limits, rootEntries, started = Date.now()) {
   const files = [];
   const notices = [];
-  const context = projectContext(root, limits, notices);
+  let context;
   const incompleteDirectories = new Set();
   const workerPaths = [];
+  const nestedPackages = [];
+  const otherLanguages = new Set();
+  const excludedFolders = new Set();
+  const rootDirectoryNames = new Set();
+  const ignoreNames = new Set();
   let packageReadError = "";
   let totalBytes = 0;
   let limited = false;
@@ -248,9 +283,22 @@ function collectProject(root, limits, rootEntries) {
     limited = true;
   }
 
+  function timeExpired() {
+    if (Date.now() - started < limits.maxDurationMs) return false;
+    stop(`Stopped after the ${limits.maxDurationMs}ms time bound.`);
+    return true;
+  }
+
+  function artifactContext() {
+    if (!context) {
+      const canRead = rel => !timeExpired() && !(rel.includes("/") && ignoreNames.has(rel.split("/")[0]));
+      context = projectContext(root, limits, notices, canRead);
+    }
+    return context;
+  }
+
   function walk(dir) {
-    if (limited) return;
-    if (Date.now() - started > limits.maxDurationMs) return stop(`Stopped after the ${limits.maxDurationMs}ms time bound.`);
+    if (limited || timeExpired()) return;
     let entries;
     try {
       entries = dir === root && rootEntries ? rootEntries : fs.readdirSync(dir, { withFileTypes: true });
@@ -260,25 +308,46 @@ function collectProject(root, limits, rootEntries) {
       notices.push({ code: "unreadable-directory", message: `Could not read ${rel}: ${error.message}` });
       return;
     }
+    if (timeExpired()) return;
+    const rootLevel = dir === root;
+    const parentRel = rootLevel ? "" : displayPath(root, dir) + "/";
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const rel = parentRel + entry.name;
+      if (rootLevel) rootDirectoryNames.add(entry.name);
+      if (SKIP_DIRS.has(entry.name) || (rootLevel && ROOT_OUTPUT_DIRS.has(entry.name)) ||
+          (isNonProductionSource(rel) && !isNonProductionSource(parentRel))) excludedFolders.add(rel);
+    }
+    if (rootLevel) {
+      if (rootDirectoryNames.has(".git")) addLiteralIgnoreFolders(gitInfoExclude(root, limits, timeExpired), ignoreNames);
+      // Artifact metadata has its own byte and file budget. When a root ignore file
+      // is present, defer metadata reads until its rules are known (root files run first).
+      if (!entries.some(entry => entry.name === ".gitignore" && entry.isFile())) artifactContext();
+    }
     // Inspect root files and src before a large asset tree can exhaust the budget.
     function rootPriority(entry) {
+      if (entry.name === "package.json" && entry.isFile()) return -1;
       if (!entry.isDirectory()) return 0;
       return entry.name === "src" ? 1 : 2;
     }
     entries.sort((a, b) => {
       const priority = dir === root ? rootPriority(a) - rootPriority(b) : 0;
-      return priority || a.name.localeCompare(b.name);
+      return priority || compareNames(a.name, b.name);
     });
 
     for (const entry of entries) {
       if (limited) break;
-      if (Date.now() - started > limits.maxDurationMs) return stop(`Stopped after the ${limits.maxDurationMs}ms time bound.`);
+      if (timeExpired()) return;
       const absolute = path.join(dir, entry.name);
+      if (!entry.isDirectory() && DESKTOP_METADATA.has(entry.name)) continue;
+      const rel = displayPath(root, absolute);
+      if (dir !== root && entry.name === "package.json" && !entry.isDirectory()) nestedPackages.push(rel);
       let stat;
       try { stat = fs.lstatSync(absolute); } catch {
         incompleteDirectories.add(displayPath(root, dir));
         continue;
       }
+      if (timeExpired()) return;
       if (/(?:service-worker|sw)\.(?:js|ts)$/i.test(entry.name) && (stat.isSymbolicLink() || stat.isFile())) {
         workerPaths.push(displayPath(root, absolute));
       }
@@ -297,14 +366,15 @@ function collectProject(root, limits, rootEntries) {
         continue;
       }
       if (stat.isDirectory()) {
-        const excluded = context.excludedDirectory(displayPath(root, absolute));
+        const ignored = dir === root && ignoreNames.has(entry.name);
+        const skipByName = SKIP_DIRS.has(entry.name) || (dir === root && ROOT_OUTPUT_DIRS.has(entry.name));
+        const excluded = artifactContext().excludedDirectory(rel);
         if (excluded) {
           notices.push({ code: "project-artifact-excluded", message: `Excluded ${displayPath(root, absolute)}: ${excluded.reason}.`, actionable: false, classification: excluded.classification });
           continue;
         }
         const artifactClassification = WORKSPACE_ARTIFACT_DIRS.get(entry.name);
         if (artifactClassification) {
-          const rel = displayPath(root, absolute);
           notices.push({
             code: "workspace-artifact-excluded",
             message: `Excluded Workspace artifact folder ${rel}; its contents were not scanned as shipped project source.`,
@@ -313,12 +383,14 @@ function collectProject(root, limits, rootEntries) {
           });
           continue;
         }
-        if (!SKIP_DIRS.has(entry.name)) walk(absolute);
+        if (!skipByName && !ignored) walk(absolute);
         continue;
       }
       if (!stat.isFile()) continue;
-      const rel = displayPath(root, absolute);
-      if (!SECRET_NAMES.test(entry.name) && WORKSPACE_ARTIFACT_FILE.test(entry.name)) {
+      const language = OTHER_LANGUAGES.get(path.extname(entry.name).toLowerCase());
+      if (language) otherLanguages.add(language);
+      const protectedFile = isProtectedFile(entry.name, rel);
+      if (!protectedFile && WORKSPACE_ARTIFACT_FILE.test(entry.name)) {
         notices.push({
           code: "workspace-artifact-excluded",
           message: `Excluded Workspace artifact file ${rel}; it was not scanned as shipped project source.`,
@@ -328,7 +400,7 @@ function collectProject(root, limits, rootEntries) {
         continue;
       }
       if (files.length >= limits.maxFiles) return stop(`Stopped at the ${limits.maxFiles}-file bound.`);
-      if (SECRET_NAMES.test(entry.name)) {
+      if (protectedFile) {
         files.push({ rel, absolute, size: stat.size, secret: true, binary: true, skipped: true, text: "", digest: `secret:${stat.size}` });
         continue;
       }
@@ -353,7 +425,7 @@ function collectProject(root, limits, rootEntries) {
       try { buffer = fs.readFileSync(absolute); }
       catch (error) {
         if (rel === "package.json") {
-          packageReadError = ["EACCES", "EPERM"].includes(error.code) ? "access was denied" : "the file read failed";
+          packageReadError = ["EACCES", "EPERM"].includes(error?.code) ? "access was denied" : "the file read failed";
         }
         notices.push({ code: "unreadable-file", message: `Could not read ${rel}.` });
         continue;
@@ -366,6 +438,7 @@ function collectProject(root, limits, rootEntries) {
         notices.push({ code: "binary-source-skipped", message: `Skipped ${rel} because it looks binary.`, actionable: false });
       }
       const text = binary ? "" : buffer.toString("utf8");
+      if (rel === ".gitignore" && buffer.length === stat.size) addLiteralIgnoreFolders(buffer, ignoreNames);
       const file = { rel, absolute, size: buffer.length, binary, skipped: false, text, digest: hash(buffer) };
       if (packageProblem) file.packageProblem = packageProblem;
       files.push(file);
@@ -373,14 +446,22 @@ function collectProject(root, limits, rootEntries) {
   }
 
   walk(root);
-  files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return { files, notices, limited, totalBytes, workerPaths, incompleteDirectories, packageReadError, durationMs: Date.now() - started };
-}
-
-function parsePackage(file) {
-  if (!file || file.packageProblem || !file.text) return { value: null, error: null };
-  try { return { value: parsePackageText(file.text), error: null }; }
-  catch (error) { return { value: null, error }; }
+  if (nestedPackages.length) notices.push({
+    code: "nested-packages-not-judged", actionable: false,
+    message: `Nested packages were not judged: ${nestedPackages.sort().join(", ")}.`,
+  });
+  const ignoredFolders = new Set([...ignoreNames].filter(name => rootDirectoryNames.has(name)));
+  for (const [folders, code, label] of [
+    [excludedFolders, "folders-not-judged", "Code rules excluded"],
+    [ignoredFolders, "git-ignored-folders", "Git ignore rules excluded"],
+  ]) {
+    if (folders.size) notices.push({
+      code, actionable: false,
+      message: `${label} ${folders.size} folder${folders.size === 1 ? "" : "s"}: ${[...folders].sort().join(", ")}.`,
+    });
+  }
+  files.sort((a, b) => compareNames(a.rel, b.rel));
+  return { files, notices, otherLanguages, limited, totalBytes, workerPaths, incompleteDirectories, packageReadError, durationMs: Date.now() - started };
 }
 
 // A name can be present, absent, or uncheckable (permissions or a link boundary).
@@ -436,7 +517,7 @@ function detectStack(files, pkg) {
   if (deps.vite || [...names].some((name) => /^vite\.config\./.test(name))) stack.add("Vite");
   if (Object.keys(deps).some((name) => name.startsWith("@tanstack/"))) stack.add("TanStack");
   if (deps.electron || (pkg && typeof pkg.main === "string" && /electron/i.test(JSON.stringify(pkg.scripts || {})))) stack.add("Electron");
-  if (deps["next-pwa"] || deps.workbox || deps["workbox-webpack-plugin"] || names.has("manifest.webmanifest") || names.has("public/manifest.json")) stack.add("PWA");
+  if (deps["next-pwa"] || deps.workbox || deps["workbox-webpack-plugin"]) stack.add("PWA");
   if (names.has("pyproject.toml") || names.has("requirements.txt")) stack.add("Python");
   if (!stack.size) stack.add("Generic");
   return [...stack];
@@ -476,7 +557,8 @@ function resolveRelativeImport(file, spec, fileSet, root, probe, fileMap) {
   if (!manifest) return manifest === null ? null : unresolved;
   const metadata = fileMap.get(displayPath(root, manifest));
   if (!metadata || metadata.skipped || metadata.binary) return null;
-  const pkg = parsePackage(metadata).value;
+  const { value: pkg, problem } = parsePackage(metadata);
+  if (problem) return null;
   if (typeof pkg?.main !== "string" || !pkg.main) return unresolved;
   const resolved = resolveNodeEntry(path.resolve(directory, pkg.main), probe);
   return resolved === false ? unresolved : resolved;
@@ -488,8 +570,7 @@ function isTestPath(rel) {
 
 // Trees a project keeps beside its source that are not the shipped product: scratch
 // mockups and their drivers ("demos/..."), and a skill's starter code ("skills-library/
-// <skill>/templates/..."). Session leftovers ("tmp/") never reach here - SKIP_DIRS drops
-// them at traversal. Narrow on purpose: the segment must be exactly "demos", so a root
+// <skill>/templates/..."). Top-level output folders are excluded during traversal. Narrow on purpose: the segment must be exactly "demos", so a root
 // "demo-debug.js" is still ordinary source, and the template rule is anchored to a skill
 // package, so an application's own "src/templates/app.js" still counts.
 function isNonProductionSource(rel) {
@@ -498,97 +579,66 @@ function isNonProductionSource(rel) {
     || /^skills-library\/[^/]+\/templates(?:\/|$)/.test(value);
 }
 
-function isExplicitNodeCli(text) {
-  return /^#![^\r\n]*\bnode(?:\s|$)/.test(String(text || ""));
+// A script can mention a source path as data. Only command entry positions
+// identify a CLI, including a quoted filename passed to the Node interpreter.
+function declaredCliFiles(pkg) {
+  const bins = typeof pkg?.bin === "string" ? [pkg.bin] : Object.values(pkg?.bin || {});
+  const entries = new Set(bins.map(normalizeDeclaredPath).filter(Boolean));
+  for (const command of Object.values(pkg?.scripts || {})) {
+    if (typeof command !== "string") continue;
+    let position = "command";
+    const words = /"([^"\n]*)"|'([^'\n]*)'|([^\s;&|"'\n]+)|([;&|\n]+)/g;
+    for (const match of command.matchAll(words)) {
+      if (match[4]) { position = "command"; continue; }
+      const token = match[1] ?? match[2] ?? match[3];
+      if (position === "command" && /^[A-Za-z_]\w*=/.test(token)) continue;
+      if (position === "command" && /^(?:node(?:\.exe)?|tsx|ts-node|bun)$/.test(path.posix.basename(token))) {
+        position = "script";
+      } else if (position !== "arguments") {
+        if (position === "script" && token.startsWith("-")) continue;
+        if (SOURCE_EXT.has(path.posix.extname(token).toLowerCase())) entries.add(normalizeDeclaredPath(token));
+        position = "arguments";
+      }
+    }
+  }
+  return entries;
 }
 
-function executableDebuggerIndexes(text) {
-  const source = String(text || "");
-  const indexes = [];
-  const regexPrefixWords = new Set([
-    "await", "case", "delete", "do", "else", "in", "instanceof", "new",
-    "of", "return", "throw", "typeof", "void", "yield",
-  ]);
-  let canStartRegex = true;
-
-  for (let i = 0; i < source.length;) {
-    const char = source[i];
-    const next = source[i + 1];
-
-    if (/\s/.test(char)) { i++; continue; }
-
-    if (char === "/" && next === "/") {
-      i += 2;
-      while (i < source.length && source[i] !== "\n") i++;
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      i += 2;
-      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i++;
-      i = Math.min(source.length, i + 2);
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") {
-      const quote = char;
-      i++;
-      while (i < source.length) {
-        if (source[i] === "\\") { i += 2; continue; }
-        if (source[i] === quote) { i++; break; }
-        i++;
-      }
-      canStartRegex = false;
-      continue;
-    }
-    if (char === "/" && canStartRegex) {
-      let inClass = false;
-      i++;
-      while (i < source.length) {
-        if (source[i] === "\\") { i += 2; continue; }
-        if (source[i] === "[") inClass = true;
-        else if (source[i] === "]") inClass = false;
-        else if (source[i] === "/" && !inClass) { i++; break; }
-        i++;
-      }
-      while (/[a-z]/i.test(source[i] || "")) i++;
-      canStartRegex = false;
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(char)) {
-      const start = i;
-      i++;
-      while (/[A-Za-z0-9_$]/.test(source[i] || "")) i++;
-      const word = source.slice(start, i);
-      if (word === "debugger") {
-        let end = i;
-        while (source[end] === " " || source[end] === "\t" || source[end] === "\r") end++;
-        if (source[end] === ";" || source[end] === "\n" || end === source.length) indexes.push(start);
-      }
-      canStartRegex = regexPrefixWords.has(word);
-      continue;
-    }
-    if (/[0-9]/.test(char)) {
-      i++;
-      while (/[A-Za-z0-9_.]/.test(source[i] || "")) i++;
-      canStartRegex = false;
-      continue;
-    }
-
-    canStartRegex = /[({[,:;=!?&|+\-*%^~<>]/.test(char);
-    i++;
+function reportVerdict(rawFindings, notices, reportDigest, timedOut) {
+  // Expiration can follow an absence found earlier in the same audit.
+  const absences = new Set(["missing-readme", "missing-package-entry", "missing-package-bin",
+    "missing-test-script", "missing-lockfile", "broken-relative-import", "pwa-missing-manifest", "pwa-missing-worker"]);
+  const evidence = timedOut ? rawFindings.filter(f => !absences.has(f.code)) : rawFindings.slice();
+  for (const notice of notices) {
+    if (notice.actionable === false) continue;
+    evidence.push({
+      code: notice.code, category: "coverage", severity: notice.code === "symlink-escape" ? "medium" : "low", confidence: notice.code === "symlink-escape" ? "likely" : "recommendation",
+      message: notice.message, file: ".", line: 1,
+      impact: "The static report does not cover every item in the project tree.",
+      verify: "Review the skipped or bounded area separately if it is relevant.",
+      recommendation: "Keep scan exclusions intentional and use an approved focused check when stronger coverage is needed.",
+    });
   }
-  return indexes;
-}
 
-function debugResidueIndexes(text, toolOutput = false) {
-  const source = String(text || "");
-  const indexes = executableDebuggerIndexes(source);
-  if (!toolOutput && !isExplicitNodeCli(source)) {
-    for (const match of source.matchAll(/\bconsole\.log\b/g)) indexes.push(match.index);
-  }
-  return indexes.sort((a, b) => a - b);
+  const severityRank = { critical: 0, high: 1, medium: 2, low: 3 };
+  const confidenceRank = { confirmed: 0, likely: 1, recommendation: 2 };
+  const findings = evidence.map((item) => makeFinding(reportDigest, item)).sort((a, b) =>
+    (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9) ||
+    (confidenceRank[a.confidence] ?? 9) - (confidenceRank[b.confidence] ?? 9) ||
+    compareNames(a.file, b.file) || a.line - b.line || compareNames(a.code, b.code)
+  );
+  const count = (key, value) => findings.filter((finding) => finding[key] === value).length;
+  const confirmed = count("confidence", "confirmed");
+  const likely = count("confidence", "likely");
+  const recommendation = count("confidence", "recommendation");
+  const high = findings.filter((finding) => finding.severity === "critical" || finding.severity === "high").length;
+  const status = confirmed || high ? "Needs attention" : findings.length ? "Watch" : "Healthy";
+  const statusKey = status === "Needs attention" ? "attention" : status.toLowerCase();
+  return { findings, status, statusKey, summary: { findings: findings.length, confirmed, likely, recommendation, high } };
 }
 
 function auditProject(options = {}) {
+  const started = Date.now();
   const requested = path.resolve(String(options.projectPath || options.path || process.cwd()));
   const limits = normalizeLimits(options.limits);
   const projectId = String(options.projectId || path.basename(requested));
@@ -613,17 +663,29 @@ function auditProject(options = {}) {
       schemaVersion: 1, checkerVersion: CHECKER_VERSION, readOnly: true, projectId, projectName, root: requested,
       digest: reportDigest, status: "Unavailable", statusKey: "unavailable", stack: ["Unknown"],
       summary: { findings: 1, confirmed: 1, likely: 0, recommendation: 0, high: 1 },
-      findings: [finding], notices: [], limits, fileCount: 0, totalBytes: 0, durationMs: 0,
+      findings: [finding], notices: [coverageNotice(0, "")], limits, fileCount: 0, totalBytes: 0, durationMs: Date.now() - started,
       disclaimer: "Static evidence only. No project code was executed or changed.",
     };
   }
 
-  const collected = collectProject(root, limits, rootEntries);
-  const probe = createPathProbe(root, requested);
+  const collected = collectProject(root, limits, rootEntries, started);
+  let timedOut = false;
+  function timeExpired() {
+    if (!timedOut && Date.now() - started >= limits.maxDurationMs) {
+      timedOut = true;
+      collected.limited = true;
+      const message = `Stopped after the ${limits.maxDurationMs}ms time bound.`;
+      if (!collected.notices.some(n => n.code === "scan-limit" && n.message === message)) {
+        collected.notices.push({ code: "scan-limit", message });
+      }
+    }
+    return timedOut;
+  }
+  const probe = createPathProbe(root, requested, timeExpired);
   const fileMap = new Map(collected.files.map((file) => [file.rel, file]));
   const fileSet = new Set(fileMap.keys());
   const packageFile = fileMap.get("package.json");
-  const parsed = parsePackage(packageFile);
+  const parsed = timeExpired() ? { value: null } : parsePackage(packageFile);
   const digestInput = collected.files.map((file) => `${file.rel}\0${file.digest}`).join("\0");
   const reportDigest = hash(digestInput || `empty:${root}`);
   const rawFindings = [];
@@ -637,6 +699,12 @@ function auditProject(options = {}) {
     verify: "Check read access, encoding and contents of package.json.",
     recommendation: "Make package.json readable as nonempty UTF-8 JSON and run the scan again.",
   });
+  else if (parsed.problem) add({
+    code: "package-not-examined", category: "coverage", severity: "low", confidence: "recommendation",
+    message: `The root package.json was not examined because ${parsed.problem}.`, file: "package.json", line: 1,
+    impact: "Package checks could not use the root metadata.", verify: "Check the structure of package.json.",
+    recommendation: "Review the metadata and rerun the project check.",
+  });
   else if (parsed.error) add({
     code: "malformed-package-json", category: "structure", severity: "high", confidence: "confirmed",
     message: `package.json is not valid JSON: ${parsed.error.message}`, file: "package.json", line: 1,
@@ -646,7 +714,8 @@ function auditProject(options = {}) {
 
   const pkg = parsed.value;
   const stack = detectStack(collected.files, pkg);
-  if (missingAfterCheck(anyProjectFile(["README.md", "readme.md"], fileSet, root, probe), "Root README.md", collected)) add({
+  const readmeNames = rootEntries.filter(entry => /^readme(?:\.(?:md|markdown|txt|rst))?$/i.test(entry.name)).map(entry => entry.name);
+  if (missingAfterCheck(anyProjectFile(readmeNames, fileSet, root, probe), "Root README.md", collected)) add({
     code: "missing-readme", category: "maintainability", severity: "low", confidence: "recommendation",
     message: "No root README.md was found.", file: ".", line: 1,
     impact: "Future contributors and agents must reverse-engineer how to run and verify the project.",
@@ -654,7 +723,7 @@ function auditProject(options = {}) {
     recommendation: "Add a short README covering purpose, setup, run, test, and current behavior.",
   });
 
-  if (pkg) {
+  if (pkg && !timeExpired()) {
     const main = typeof pkg.main === "string" ? pkg.main.replace(/^\.\//, "") : "";
     if (main && missingPackageEntry(main, "main", root, probe, collected)) add({
       code: "missing-package-entry", category: "bug", severity: "high", confidence: "confirmed",
@@ -667,6 +736,7 @@ function auditProject(options = {}) {
       : pkg.bin && typeof pkg.bin === "object" && !Array.isArray(pkg.bin) ? Object.values(pkg.bin) : [];
     const binEntries = new Set(bins.filter(value => typeof value === "string").map(value => value.replace(/^\.\//, "")));
     for (const entry of binEntries) {
+      if (timeExpired()) break;
       if (entry && missingPackageEntry(entry, "bin", root, probe, collected)) add({
         code: "missing-package-bin", category: "bug", severity: "high", confidence: "confirmed",
         message: `package.json declares a missing bin entry: ${entry}`,
@@ -678,7 +748,7 @@ function auditProject(options = {}) {
     }
     const scripts = pkg.scripts || {};
     const testScript = typeof scripts.test === "string" ? scripts.test.trim() : "";
-    if (!testScript || /no test specified|exit 1/i.test(testScript)) add({
+    if (!testScript || /^echo\s+(["']?)(?:error:\s*)?no test specified\1\s*&&\s*exit\s+1$/i.test(testScript)) add({
       code: "missing-test-script", category: "tests", severity: "medium", confidence: "recommendation",
       message: "The package has no usable test script.", file: "package.json", line: lineAt(packageFile.text, Math.max(0, packageFile.text.indexOf('"scripts"'))),
       impact: "Regressions are harder to detect consistently across agents and machines.",
@@ -686,7 +756,7 @@ function auditProject(options = {}) {
       recommendation: "Expose the smallest reliable automated test command through the package scripts.",
     });
     const dependencyCount = Object.keys(pkg.dependencies || {}).length + Object.keys(pkg.devDependencies || {}).length;
-    const lockfiles = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
+    const lockfiles = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
     if (dependencyCount && missingAfterCheck(anyProjectFile(lockfiles, fileSet, root, probe), "Dependency lockfile", collected)) add({
       code: "missing-lockfile", category: "maintainability", severity: "medium", confidence: "likely",
       message: "Dependencies are declared but no recognized lockfile was found.", file: "package.json", line: 1,
@@ -704,10 +774,14 @@ function auditProject(options = {}) {
   // they are read as samples, never loaded by the shipped app, so their risky-looking code
   // is not live production evidence either.
   const runtimeSourceFiles = sourceFiles.filter((file) => !isTestPath(file.rel) && !isNonProductionSource(file.rel));
+  const examinedSources = new Set();
   const importLimit = 24;
   let brokenImports = 0;
   importFiles: for (const file of runtimeSourceFiles) {
+    if (timeExpired()) break;
+    examinedSources.add(file.rel);
     for (const { index, spec, spelling } of relativeImportLiterals(file.text, file.rel)) {
+      if (timeExpired()) break importFiles;
       const resolved = resolveRelativeImport(file, spec, fileSet, root, probe, fileMap);
       if (resolved === null) {
         collected.notices.push({ code: "import-not-checked", actionable: false, message: `Could not check relative import ${spelling} in ${file.rel}.` });
@@ -729,27 +803,13 @@ function auditProject(options = {}) {
     }
   }
 
-  if (stack.includes("Electron")) {
-    const electronFiles = runtimeSourceFiles.filter((file) => /BrowserWindow|webPreferences|electron/i.test(file.text));
-    const risky = [
-      ["electron-node-integration", /nodeIntegration\s*:\s*true/g, "nodeIntegration is enabled in an Electron renderer.", "Untrusted renderer content may gain direct Node.js access.", "Disable nodeIntegration and expose a narrow context-isolated preload API."],
-      ["electron-context-isolation", /contextIsolation\s*:\s*false/g, "Electron context isolation is disabled.", "Page scripts may interfere with privileged preload state.", "Enable contextIsolation and keep the bridge narrowly scoped."],
-      ["electron-web-security", /webSecurity\s*:\s*false/g, "Electron web security is disabled.", "The renderer loses important browser-origin protections.", "Restore webSecurity unless a narrowly documented exception is essential."],
-      ["electron-sandbox-disabled", /sandbox\s*:\s*false/g, "The Electron renderer sandbox is explicitly disabled.", "A renderer compromise may have a larger impact.", "Enable the sandbox when compatible, or document and verify the required exception."],
-    ];
-    for (const file of electronFiles) for (const [code, pattern, message, impact, recommendation] of risky) {
-      const match = pattern.exec(file.text); pattern.lastIndex = 0;
-      if (match) add({ code, category: "security", severity: "high", confidence: "likely", message, file: file.rel, line: lineAt(file.text, match.index), impact, verify: "Inspect the effective BrowserWindow webPreferences at runtime.", recommendation });
-    }
-  }
-
-  if (stack.includes("PWA")) {
-    const hasManifest = [...fileSet].some((name) => /(?:^|\/)(?:manifest\.json|manifest\.webmanifest)$/i.test(name));
+  if (stack.includes("PWA") && !timeExpired()) {
+    const hasManifest = [...fileSet].some((name) => /(?:^|\/)(?:manifest\.json|(?:manifest|site)\.webmanifest)$/i.test(name));
     const workerNames = ["service-worker.js", "service-worker.ts", "sw.js", "sw.ts"];
     const conventionalWorkers = ["", "public", "src"].flatMap(dir => workerNames.map(name => path.posix.join(dir, name)));
     const hasWorker = anyProjectFile([...collected.workerPaths, ...conventionalWorkers], fileSet, root, probe);
     const incompleteWorkerSearch = collected.limited || collected.incompleteDirectories.size > 0;
-    if (!hasManifest) add({ code: "pwa-missing-manifest", category: "structure", severity: "medium", confidence: "likely", message: "PWA tooling is present but no web app manifest was found.", file: "package.json", line: 1, impact: "Install metadata and standalone behavior may be incomplete.", verify: "Inspect framework-generated metadata and the built output before treating this as a defect.", recommendation: "Add or explicitly generate a valid web app manifest." });
+    if (!hasManifest && !incompleteWorkerSearch && !timeExpired()) add({ code: "pwa-missing-manifest", category: "structure", severity: "medium", confidence: "likely", message: "PWA tooling is present but no web app manifest was found.", file: "package.json", line: 1, impact: "Install metadata and standalone behavior may be incomplete.", verify: "Inspect framework-generated metadata and the built output before treating this as a defect.", recommendation: "Add or explicitly generate a valid web app manifest." });
     if (missingAfterCheck(hasWorker, "Source service worker", collected, incompleteWorkerSearch)) add({ code: "pwa-missing-worker", category: "performance", severity: "medium", confidence: "recommendation", message: "PWA tooling is present but no source service worker was found.", file: "package.json", line: 1, impact: "Offline and caching behavior may depend entirely on generated framework output.", verify: "Inspect the production build and registration path.", recommendation: "Document the generated worker or add an intentional offline strategy." });
   }
 
@@ -758,15 +818,17 @@ function auditProject(options = {}) {
     code: "secret-files-present", category: "security", severity: "high", confidence: "likely",
     message: `${secretFiles.length} secret-like file${secretFiles.length === 1 ? " is" : "s are"} present in the project tree; contents were not read.`, file: secretFiles[0].rel, line: 1,
     impact: "Secrets may be copied, committed, packaged, or exposed accidentally.",
-    verify: "Confirm ignore rules and version-control status without printing secret values.",
+    verify: "Confirm ignore rules and version-control status without printing secret values." +
+      (secretFiles.length > 1 ? ` Files: ${secretFiles.map(file => file.rel).join(", ")}.` : ""),
     recommendation: "Keep secrets outside distributable source and document safe local configuration.",
   });
 
-  const largeFiles = collected.files.filter((file) => file.size > 1024 * 1024 && !file.secret).sort((a, b) => b.size - a.size || a.rel.localeCompare(b.rel));
+  const largeFiles = collected.files.filter((file) => file.size > 1024 * 1024 && !file.secret).sort((a, b) => b.size - a.size || compareNames(a.rel, b.rel));
   const oversized = [];
   const intentionalLarge = [];
   const nonProductionLarge = [];
   for (const file of largeFiles) {
+    if (timeExpired()) break;
     // Not runtime weight, for the same reason the tree is not runtime source. Disclosed as
     // one grouped non-actionable notice rather than a performance finding about the product.
     if (isNonProductionSource(file.rel)) { nonProductionLarge.push(file); continue; }
@@ -780,7 +842,7 @@ function auditProject(options = {}) {
     actionable: false,
     classification: "non-production-tree",
   });
-  for (const item of intentionalLarge.sort((a, b) => a.file.rel.localeCompare(b.file.rel))) {
+  for (const item of intentionalLarge.sort((a, b) => compareNames(a.file.rel, b.file.rel))) {
     collected.notices.push({
       code: "intentional-large-asset",
       message: `Retained ${item.file.rel} (${formatMiB(item.file.size)}): ${item.reason}.`,
@@ -806,20 +868,39 @@ function auditProject(options = {}) {
   let dynamicExecEvidence = null;
   let toolingLogs = 0;
   const electronDependency = pkg?.dependencies?.electron || pkg?.devDependencies?.electron;
+  const isElectron = stack.includes("Electron");
+  const cliFiles = timeExpired() ? new Set() : declaredCliFiles(pkg);
   for (const file of runtimeSourceFiles) {
+    if (timeExpired()) break;
+    examinedSources.add(file.rel);
+    const evidence = executableEvidence(file.text, isElectron, timeExpired);
+    if (!evidence || timeExpired()) break;
+    for (const [key, index] of evidence.settings) {
+      const [, code, message, impact, recommendation] = electronRules.get(key);
+      add({ code, category: "security", severity: "high", confidence: "likely", message, file: file.rel,
+        line: lineAt(file.text, index), impact, verify: "Inspect the effective BrowserWindow webPreferences at runtime.", recommendation });
+    }
     const todo = file.text.match(/\b(?:TODO|FIXME)\b/g);
     if (todo && todo.length) { todoCount += todo.length; if (!todoEvidence) todoEvidence = { file: file.rel, line: lineAt(file.text, file.text.search(/\b(?:TODO|FIXME)\b/)) }; }
-    // Tool scripts print their results. Only excuse logs when the actual Electron
-    // package allowlist proves the script is not shipped; all other checks remain.
+    // Count output from explicitly unpackaged Electron tools for its existing notice.
     const toolOutput = Boolean(electronDependency && file.rel.startsWith("scripts/") &&
       normalizeDeclaredPath(pkg.main) !== file.rel && excludedByExplicitBuildFiles(file.rel, pkg));
     if (toolOutput) toolingLogs += (file.text.match(/\bconsole\.log\b/g) || []).length;
-    const debug = debugResidueIndexes(file.text, toolOutput);
-    if (debug.length) { debugCount += debug.length; if (!debugEvidence) debugEvidence = { file: file.rel, line: lineAt(file.text, debug[0]) }; }
-    const emptyCatch = file.text.match(/catch\s*(?:\([^)]*\))?\s*\{\s*\}/g);
-    if (emptyCatch && emptyCatch.length) { emptyCatchCount += emptyCatch.length; if (!emptyCatchEvidence) emptyCatchEvidence = { file: file.rel, line: lineAt(file.text, file.text.search(/catch\s*(?:\([^)]*\))?\s*\{\s*\}/)) }; }
-    const dynamic = file.text.match(/\b(?:eval\s*\(|new\s+Function\s*\()/g);
-    if (dynamic && dynamic.length) { dynamicExecCount += dynamic.length; if (!dynamicExecEvidence) dynamicExecEvidence = { file: file.rel, line: lineAt(file.text, file.text.search(/\b(?:eval\s*\(|new\s+Function\s*\()/)) }; }
+    const debug = evidence.debug;
+    let firstDebug = debug[0];
+    if (!toolOutput && !isExplicitNodeCli(file.text) && !evidence.mainGuard && !cliFiles.has(file.rel)) {
+      for (const match of file.text.matchAll(/\bconsole\.log\b/g)) {
+        debug.push(match.index);
+        if (firstDebug === undefined || match.index < firstDebug) firstDebug = match.index;
+      }
+    }
+    if (debug.length) { debugCount += debug.length; if (!debugEvidence) debugEvidence = { file: file.rel, line: lineAt(file.text, firstDebug) }; }
+    const emptyCatch = file.text.match(/catch\s*(?:\([^()]*\)\s*)?\{\s*\}/g);
+    if (emptyCatch && emptyCatch.length) { emptyCatchCount += emptyCatch.length; if (!emptyCatchEvidence) emptyCatchEvidence = { file: file.rel, line: lineAt(file.text, file.text.search(/catch\s*(?:\([^()]*\)\s*)?\{\s*\}/)) }; }
+    if (evidence.dynamic.length) {
+      dynamicExecCount += evidence.dynamic.length;
+      if (!dynamicExecEvidence) dynamicExecEvidence = { file: file.rel, line: lineAt(file.text, evidence.dynamic[0]) };
+    }
   }
   if (toolingLogs) collected.notices.push({
     code: "tooling-console-output", actionable: false, classification: "unpackaged-tool-output",
@@ -830,37 +911,26 @@ function auditProject(options = {}) {
   if (emptyCatchCount) add({ code: "empty-catch", category: "bug", severity: "medium", confidence: "likely", message: `${emptyCatchCount} empty catch block${emptyCatchCount === 1 ? " suppresses" : "s suppress"} errors without evidence.`, ...emptyCatchEvidence, impact: "Failures may become silent and difficult to diagnose.", verify: "Exercise the surrounding failure path and inspect expected recovery behavior.", recommendation: "Handle, report, or deliberately document the swallowed error." });
   if (dynamicExecCount) add({ code: "dynamic-code-execution", category: "security", severity: "high", confidence: "likely", message: `${dynamicExecCount} dynamic code execution primitive${dynamicExecCount === 1 ? " was" : "s were"} found.`, ...dynamicExecEvidence, impact: "Untrusted input may become executable code if the call path is not tightly controlled.", verify: "Trace every input reaching the cited primitive.", recommendation: "Replace dynamic evaluation with explicit parsing or a constrained dispatch table." });
 
-  for (const notice of collected.notices) {
-    if (notice.actionable === false) continue;
-    add({
-      code: notice.code, category: "coverage", severity: notice.code === "symlink-escape" ? "medium" : "low", confidence: notice.code === "symlink-escape" ? "likely" : "recommendation",
-      message: notice.message, file: ".", line: 1,
-      impact: "The static report does not cover every item in the project tree.",
-      verify: "Review the skipped or bounded area separately if it is relevant.",
-      recommendation: "Keep scan exclusions intentional and use an approved focused check when stronger coverage is needed.",
-    });
-  }
+  const languages = [...collected.otherLanguages].sort().join(", ");
+  collected.notices.push(coverageNotice(examinedSources.size, languages));
+  if (!examinedSources.size && languages) add({
+    code: "code-not-examined", category: "coverage", severity: "low", confidence: "recommendation",
+    message: `${languages} code was not examined.`, file: ".", line: 1,
+    impact: "Source issues in these languages can be absent from this report.",
+    verify: "Review which languages have source files in this project.",
+    recommendation: "Use a checker that examines those languages.",
+  });
 
-  const severityRank = { critical: 0, high: 1, medium: 2, low: 3 };
-  const confidenceRank = { confirmed: 0, likely: 1, recommendation: 2 };
-  const findings = rawFindings.map((item) => makeFinding(reportDigest, item)).sort((a, b) =>
-    (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9) ||
-    (confidenceRank[a.confidence] ?? 9) - (confidenceRank[b.confidence] ?? 9) ||
-    a.file.localeCompare(b.file) || a.line - b.line || a.code.localeCompare(b.code)
-  );
-  const count = (key, value) => findings.filter((finding) => finding[key] === value).length;
-  const confirmed = count("confidence", "confirmed");
-  const likely = count("confidence", "likely");
-  const recommendation = count("confidence", "recommendation");
-  const high = findings.filter((finding) => finding.severity === "critical" || finding.severity === "high").length;
-  const status = confirmed || high ? "Needs attention" : findings.length ? "Watch" : "Healthy";
-  const statusKey = status === "Needs attention" ? "attention" : status.toLowerCase();
+  const expiredBeforeReport = timeExpired();
+  let verdict = reportVerdict(rawFindings, collected.notices, reportDigest, expiredBeforeReport);
+  // Formatting and hashing evidence also consumes time. An expiry here needs
+  // a final partial verdict, including the scan-limit notice just recorded.
+  if (!expiredBeforeReport && timeExpired()) verdict = reportVerdict(rawFindings, collected.notices, reportDigest, true);
   return {
     schemaVersion: 1, checkerVersion: CHECKER_VERSION, readOnly: true, projectId, projectName, root, digest: reportDigest,
-    status, statusKey, stack,
-    summary: { findings: findings.length, confirmed, likely, recommendation, high },
-    findings, notices: collected.notices, limits, fileCount: collected.files.length,
-    totalBytes: collected.totalBytes, durationMs: collected.durationMs,
+    status: verdict.status, statusKey: verdict.statusKey, stack, summary: verdict.summary,
+    findings: verdict.findings, notices: collected.notices, limits, fileCount: collected.files.length,
+    totalBytes: collected.totalBytes, durationMs: Date.now() - started,
     disclaimer: "Static evidence only. No project code was executed, fetched, installed, or changed.",
   };
 }

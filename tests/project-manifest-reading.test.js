@@ -73,19 +73,25 @@ test("binary source and manifest files are named, images and fonts are quiet", t
   const files = Object.fromEntries([...sources, "picture.png", "font.woff2"].map(name => [name, utf16]));
   const report = project(t, files);
   assert.deepEqual(report.notices.map(({ code, message }) => [code, message]).sort(), sources.map(name =>
-    ["binary-source-skipped", "Skipped " + name + " because it looks binary."]).sort());
+    ["binary-source-skipped", "Skipped " + name + " because it looks binary."]).concat([
+    ["code-coverage", "Code rules examined 1 JavaScript/TypeScript file. Other languages seen but not examined: none."],
+  ]).sort());
 });
 
 test("the same source in plain UTF-8 is checked", t => {
   const report = project(t, { "index.js": "require('./missing');" });
   assert.deepEqual(report.findings.map(item => item.code), ["broken-relative-import"]);
-  assert.deepEqual(report.notices, []);
+  assert.deepEqual(report.notices, [{
+    code: "code-coverage", message: "Code rules examined 1 JavaScript/TypeScript file. Other languages seen but not examined: none.", actionable: false,
+  }]);
 });
 
 test("a UTF-16 source BOM discloses a skipped file even when no byte is zero", t => {
   const report = project(t, { "index.js": Buffer.from([0xff, 0xfe, 0x2d, 0x4e]) });
   assert.deepEqual(report.notices, [{
     code: "binary-source-skipped", message: "Skipped index.js because it looks binary.", actionable: false,
+  }, {
+    code: "code-coverage", message: "Code rules examined 0 JavaScript/TypeScript files. Other languages seen but not examined: none.", actionable: false,
   }]);
 });
 

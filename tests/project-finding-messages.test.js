@@ -28,7 +28,7 @@ test("project findings keep the exact package, import, Electron, PWA and source 
     "package.json": JSON.stringify({ main: "missing.js", dependencies: { electron: "1", "next-pwa": "1" } }),
     "app.js": [
       "require('./absent');",
-      "// BrowserWindow webPreferences: nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false",
+      "new BrowserWindow({ webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, sandbox: false } });",
       "// TODO FIXME TODO FIXME TODO FIXME TODO FIXME",
       "debugger; debugger; debugger; debugger;",
     ].join("\n"),

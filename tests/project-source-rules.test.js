@@ -1,0 +1,89 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { auditProject } = require("../skills/audit-project-health/scripts/audit-project");
+
+function audit(t, source, pkg = {}, files = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "project-source-rules-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const [rel, contents] of Object.entries({
+    "README.md": "", "package-lock.json": "{}",
+    "package.json": JSON.stringify({ scripts: { test: "node --test" }, ...pkg }),
+    "src/tool.js": source, ...files,
+  })) {
+    const file = path.join(root, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, contents);
+  }
+  return auditProject({ projectPath: root });
+}
+
+const electron = { dependencies: { electron: "1" } };
+const risky = ["electron-context-isolation", "electron-node-integration", "electron-sandbox-disabled", "electron-web-security"];
+for (const [label, source, expected] of [
+  ["warning comment", "new BrowserWindow({webPreferences:{nodeIntegration:false, contextIsolation:true}}); // never use nodeIntegration:true or contextIsolation:false", []],
+  ["quoted warning", "const note = 'BrowserWindow nodeIntegration:true sandbox:false';", []],
+  ["unrelated sandbox option", "require('electron'); new BrowserWindow({}); startTask({sandbox:false});", []],
+  ["plain options", "new BrowserWindow({webPreferences:{nodeIntegration:true,contextIsolation:false,sandbox:false,webSecurity:false}});", risky],
+  ["quoted options", "new BrowserWindow({'webPreferences':{'nodeIntegration':true,'contextIsolation':false,'sandbox':false,'webSecurity':false}});", risky],
+  ["options assigned separately", "const wp={}; wp.contextIsolation=false; wp.nodeIntegration=true; wp.sandbox=false; wp.webSecurity=false; new BrowserWindow({webPreferences:wp});", risky],
+  ["shorthand preferences", "const webPreferences={sandbox:false}; new BrowserWindow({webPreferences});", ["electron-sandbox-disabled"]],
+  ["bracket preferences", "const opts={}; opts['webPreferences']={}; opts['webPreferences'].sandbox=false; new BrowserWindow(opts);", ["electron-sandbox-disabled"]],
+  ["quoted assignment", "const opts={}; opts.webPreferences={}; opts.webPreferences['sandbox']=false; new BrowserWindow(opts);", ["electron-sandbox-disabled"]],
+  ["separate member settings", "const config={}; config.window={}; config.window.sandbox=false; new BrowserWindow({webPreferences:config.window});", ["electron-sandbox-disabled"]],
+  ["different member settings", "const config={sandbox:false,window:{sandbox:true}}; new BrowserWindow({webPreferences:config.window});", []],
+  ["separate settings object", "const prefs={sandbox:false}; new BrowserWindow({webPreferences:prefs});", ["electron-sandbox-disabled"]],
+]) {
+  test("Electron settings: " + label, t => {
+    const report = audit(t, source, electron);
+    assert.deepEqual(report.findings.map(f => f.code).sort(), expected);
+    assert.equal(report.status, expected.length ? "Needs attention" : "Healthy");
+  });
+}
+
+for (const name of ["public/manifest.json", "manifest.webmanifest", "public/site.webmanifest"]) {
+  test("a lone " + name + " is not PWA tooling", t => {
+    const report = audit(t, "", {}, { [name]: "{}" });
+    assert.ok(!report.stack.includes("PWA"));
+    assert.equal(report.status, "Healthy");
+  });
+  test("PWA tooling accepts " + name, t => {
+    const report = audit(t, "", { dependencies: { workbox: "1" } }, { [name]: "{}" });
+    assert.ok(report.stack.includes("PWA"));
+    assert.deepEqual(report.findings.map(f => f.code), ["pwa-missing-worker"]);
+  });
+}
+
+for (const [label, source, matches] of [
+  ["comments", "// eval(value);\n/* new Function(value) */", 0],
+  ["quoted text", "'eval(value)'; \"new Function(value)\"; `eval(value)`;", 0],
+  ["methods", "page.$eval('h1', callback); obj.eval(value); obj?.eval(value);", 0],
+  ["live code", "eval(value); new Function(value);", 2],
+  ["live template expression", "const result = `value: ${eval(value)}`;", 1],
+]) {
+  test("dynamic code: " + label, t => {
+    const report = audit(t, source);
+    const messages = report.findings.map(f => f.message);
+    assert.deepEqual(messages, matches ? [matches + " dynamic code execution primitive" + (matches === 1 ? " was" : "s were") + " found."] : []);
+  });
+}
+
+const logs = "console.log('output');\n".repeat(5);
+for (const [label, source, pkg, reportsLogs] of [
+  ["node shebang", "#!/usr/bin/env node\n" + logs, {}, false],
+  ["require.main entry", "if (require.main === module) { run(); }\n" + logs, {}, false],
+  ["bin string", logs, { bin: "./src/tool.js" }, false],
+  ["named bin", logs, { bin: { report: "./src/tool.js" } }, false],
+  ["scripts command", logs, { scripts: { test: "node --test", run: "node './src/tool.js' --report" } }, false],
+  ["ordinary application module", logs, {}, true],
+  ["commented main and file used as data", "// require.main === module\n" + logs, { scripts: { test: "cat src/tool.js" } }, true],
+]) {
+  test("command-line output: " + label, t => {
+    const report = audit(t, source, pkg);
+    assert.deepEqual(report.findings.map(f => f.code), reportsLogs ? ["debug-residue"] : []);
+  });
+}

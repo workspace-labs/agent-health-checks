@@ -166,6 +166,41 @@ All nine jobs passed at commit `0107553`. Each column shows **passed / skipped**
 | `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit |
 | `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing |
 
+### Project coverage and audit limits (0.5.0, 2026-11-26)
+
+On Apple silicon with macOS 27.2.1, each runtime ran the complete suite from the repository root with `node --test --test-reporter=tap`. The 245 existing cases and 73 new cases ran on each version.
+
+| Node | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| 20.20.2 | 318 | 0 | 0 |
+| 22.23.1 | 318 | 0 | 0 |
+| 24.22.1 | 318 | 0 | 0 |
+| 26.13.1 | 318 | 0 | 0 |
+
+The new tests cover the 26 examples in the brief and their controls, including the corrected manifest-after-stop case. Run the new cases and the six earlier Step 2 and Step 3 test files with these commands.
+
+```bash
+node --test tests/project-coverage.test.js tests/project-source-rules.test.js tests/project-files-and-order.test.js tests/project-audit-limits.test.js
+node --test tests/project-import-context.test.js tests/project-import-markup.test.js tests/project-entry-checks.test.js tests/project-manifest-reading.test.js tests/project-import-resolution.test.js tests/project-import-forms.test.js
+```
+
+The focused runs passed 73/73 and 122/122 on Node 22.23.1. The new suite removed every fixture from its isolated temporary directory. For the release comparison, a clean archive of v0.4.0 passed its original 245/245 tests. Running the 73 new cases against that archive gave 52 failures and 21 passes. A protected-file test observed file reads and checked that the report contained no fixture values. Fixed-clock tests spent the deadline during root listing, traversal, metadata lookup and report preparation.
+
+Each number below is milliseconds for a separate full audit of a 512 KiB fixture, including launching the CLI and receiving its JSON. The test gives each child one second. On v0.4.0 the padded catch case exceeded that limit and the from control completed in 37.0 ms.
+
+| Node | Empty catch | TODO | Debug | Dynamic code | Electron | From control |
+|---|---:|---:|---:|---:|---:|---:|
+| 20.20.2 | 56.8 | 68.3 | 66.7 | 91.2 | 72.6 | 42.1 |
+| 22.23.1 | 55.9 | 55.6 | 94.2 | 100.7 | 66.7 | 41.7 |
+| 24.22.1 | 64.7 | 49.7 | 76.2 | 86.2 | 83.8 | 59.6 |
+| 26.13.1 | 75.5 | 52.6 | 90.5 | 76.9 | 75.5 | 68.3 |
+
+Audits under Czech and Estonian locales reproduced different v0.4.0 fingerprints for the same two files, `ch.js` and `h.js`. The 0.5.0 reports agreed on the fingerprint, finding IDs, order and notices. Desktop metadata also left the new fingerprint unchanged.
+
+The real Electron project returned Watch, five findings and zero confirmed on both releases. All five findings retained their wording, location and order. The changed inventory produced new IDs. The new report counted 239 JavaScript/TypeScript files examined. It named four other languages, one nested package, 13 skipped or sample directories and six literal Git directory exclusions. The nine earlier notices remained, with two moving down to accommodate new disclosures. The checker repository reported Healthy with zero findings.
+
+The 0.5.0 runs above are local. The hosted macOS, Linux and Windows results further up this file belong to earlier releases.
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:

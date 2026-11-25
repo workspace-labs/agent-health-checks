@@ -7,12 +7,13 @@ const MAX_METADATA_READS = 1024;
 
 // Check exact directory entries even on case-insensitive volumes. A missing name
 // is different from a directory we could not list. Share listings for one audit.
-function createPathProbe(root, requested = root) {
+function createPathProbe(root, requested = root, timeExpired = () => false) {
   const directories = new Map();
   const linkTargets = new Map();
   let remaining = MAX_METADATA_READS;
 
   function cachedRead(cache, name, read) {
+    if (timeExpired()) return null;
     if (cache.has(name)) return cache.get(name);
     if (remaining === 0) return null;
     remaining--;

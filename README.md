@@ -37,7 +37,7 @@ Asking the agent that is about to do the work is not an answer. That's an opinio
 | **Skills doctor** | The instructions agents load | Structure, trigger wording, safety signals, portability, cross-model compatibility |
 | **Projects doctor** | JavaScript and TypeScript projects | Structure, broken local references, risky patterns, testing gaps, performance signals, maintainability |
 
-For projects written in another language, a **Healthy** result means the source code in that language was **not examined**.
+Every project report counts the JavaScript and TypeScript files its code rules examined and names other recognized languages it saw. A Python-only or Go-only project gets a coverage finding and a **Watch** status. A mixed project gets a coverage notice.
 
 **Two, not one.** Instructions and source code are different material with different risks, and one report that mixes them serves neither. Separate checkers get precise triggers, tighter boundaries, and a report you can read in one sitting.
 

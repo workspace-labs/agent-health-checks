@@ -59,9 +59,11 @@ for (const count of [24, 25, 31]) {
     });
     assert.equal(report.summary.confirmed, 24);
     assert.deepEqual(report.findings.map(f => f.message), missing.slice(0, 24).map((_, i) => `Relative import does not resolve: ./missing-${i}`));
-    assert.deepEqual(report.notices, count === 24 ? [] : [
+    const expectedNotices = count === 24 ? [] : [
       { code: "broken-import-limit", actionable: false, message: "Showing 24 broken relative imports. More exist." },
-    ]);
+    ];
+    expectedNotices.push({ code: "code-coverage", actionable: false, message: "Code rules examined 3 JavaScript/TypeScript files. Other languages seen but not examined: none." });
+    assert.deepEqual(report.notices, expectedNotices);
   });
 }
 

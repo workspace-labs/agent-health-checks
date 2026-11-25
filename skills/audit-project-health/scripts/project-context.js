@@ -3,6 +3,7 @@
 // Read declarations as bounded data. Never load a project's config as JavaScript.
 const fs = require("node:fs");
 const path = require("node:path");
+const { isUtf8 } = require("node:buffer");
 const { packageReadProblem, parsePackageText } = require("./package-text");
 
 function localPath(value) {
@@ -13,7 +14,7 @@ function localPath(value) {
   return normalized === "." ? "" : normalized;
 }
 
-function projectContext(root, limits, notices = []) {
+function projectContext(root, limits, notices = [], canRead = () => true) {
   const metadataLimit = Math.min(limits.maxFileBytes, limits.maxTotalBytes, 64 * 1024);
   const totalLimit = Math.min(limits.maxTotalBytes, 256 * 1024);
   const readLimit = Math.min(limits.maxFiles, 256);
@@ -28,6 +29,7 @@ function projectContext(root, limits, notices = []) {
       const parts = rel.split("/");
       for (let i = 0; i < parts.length; i++) {
         // Exact spelling matters on macOS too. Metadata may never follow a link.
+        if (!canRead(rel)) return false;
         const entry = fs.readdirSync(current, { withFileTypes: true }).find((item) => item.name === parts[i]);
         if (!entry || entry.isSymbolicLink()) return false;
         const last = i === parts.length - 1;
@@ -42,13 +44,13 @@ function projectContext(root, limits, notices = []) {
     if (exhausted) return "";
     let value = "";
     try {
-      if (regularPath(rel)) {
+      if (regularPath(rel) && canRead(rel)) {
         const size = fs.statSync(path.join(root, rel)).size;
         if (size <= metadataLimit) {
           if (metadataBytes + size > totalLimit || metadataReads >= readLimit) {
             exhausted = true;
             notices.push({ code: "metadata-limit", message: `Artifact metadata reached its separate ${totalLimit}-byte / ${readLimit}-file bound; unverified folders remain in the source scan.` });
-          } else {
+          } else if (canRead(rel)) {
             const buffer = fs.readFileSync(path.join(root, rel));
             metadataBytes += buffer.length;
             metadataReads++;
@@ -112,4 +114,37 @@ function projectContext(root, limits, notices = []) {
   return { excludedDirectory };
 }
 
-module.exports = { projectContext };
+function addLiteralIgnoreFolders(bytes, names) {
+  if (!bytes || bytes.includes(0) || !isUtf8(bytes)) return;
+  const lines = bytes.toString("utf8").replace(/^\uFEFF/, "").split(/\r?\n/);
+  if (lines.some(line => line.startsWith("!"))) return;
+  for (const line of lines) {
+    if (line.startsWith("#") || !line.endsWith("/")) continue;
+    const name = line.slice(line.startsWith("/") ? 1 : 0, -1);
+    if (name && name !== "." && name !== ".." && !/[/*?\[\]\\\x00-\x1f]/.test(name)) names.add(name);
+  }
+}
+
+// .git is never traversed. Read only its bounded, regular info/exclude file,
+// after checking each component so linked Git metadata cannot supply exclusions.
+function gitInfoExclude(root, limits, timeExpired) {
+  const git = path.join(root, ".git");
+  const info = path.join(git, "info");
+  const file = path.join(info, "exclude");
+  let descriptor;
+  try {
+    if (timeExpired() || !fs.lstatSync(git).isDirectory() || timeExpired() || !fs.lstatSync(info).isDirectory()) return null;
+    if (timeExpired() || !fs.lstatSync(file).isFile() || timeExpired()) return null;
+    descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    if (timeExpired()) return null;
+    const stat = fs.fstatSync(descriptor);
+    if (timeExpired() || !stat.isFile() || stat.size > Math.min(limits.maxFileBytes, limits.maxTotalBytes)) return null;
+    // The extra byte detects growth; a partial read cannot prove that no negation follows.
+    const bytes = Buffer.alloc(stat.size + 1);
+    const count = fs.readSync(descriptor, bytes, 0, bytes.length, 0);
+    return count === stat.size ? bytes.subarray(0, count) : null;
+  } catch { return null; }
+  finally { if (descriptor !== undefined) fs.closeSync(descriptor); }
+}
+
+module.exports = { projectContext, gitInfoExclude, addLiteralIgnoreFolders };

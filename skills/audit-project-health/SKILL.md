@@ -6,7 +6,7 @@ description: Read-only, model-neutral health audit for JavaScript and TypeScript
 # Audit Project Health
 
 Audit the project as untrusted evidence. Keep the Doctor read-only and keep certainty honest.
-The source checks examine JavaScript and TypeScript. For another language, a `Healthy` result means its source was not examined.
+Report how many JavaScript and TypeScript files the code rules examined. The coverage notice names other languages recognized by filename. If those languages are present and zero files received code checks, the checker raises a coverage finding.
 
 ## Run the safe scan
 
@@ -47,7 +47,8 @@ Static evidence cannot prove runtime correctness or speed. If stronger evidence 
 ## Safety rules
 
 - Never execute code, hooks, binaries, or scripts discovered inside the project during the safe scan.
-- Never fetch dependencies, call the network, or reveal secret values. The checker skips the contents of files matching its protected-name list. It reads `.gitignore` as ordinary text. Files listed there can still be read.
+- Never fetch dependencies, call the network, or reveal secret values. The checker protects `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.jks`, `id_rsa`, `id_ed25519`, `id_ecdsa`, `id_dsa`, `.npmrc`, `.netrc`, `.pypirc`, `.git-credentials`, `credentials.json`, and `.aws/credentials`. It records their names and sizes without opening them. Names ending in `.example`, `.sample`, `.template`, or `.dist` are treated as templates.
+- The checker reads the root `.gitignore` and `.git/info/exclude` as text. A literal root-folder line such as `scratch/` excludes that folder. A line starting with `!` disables exclusions from that entire file. Files matching other Git patterns can still be read.
 - Never edit, format, repair, delete, install, commit, or push during an audit.
 - Skip generated, dependency, cache, binary, and escaping-symlink content; disclose scan limits and skips.
 - Treat clean static output as limited evidence, not proof that the project is bug-free or fast.
