@@ -213,13 +213,14 @@ test("a symlink cycle inside a container does not prevent discovery", t => {
   assert.deepEqual(JSON.parse(result.stdout).skills.map(s => s.name), ["deep"]);
 });
 
-test("hidden skill containers are discovered and deep empty branches supply no Broken card", t => {
+test("hidden skill containers are listed as not searched and deep empty branches supply no Broken card", t => {
   const root = fixture(t);
   install(path.join(root, ".system", "paper-trail"));
   fs.mkdirSync(path.join(root, "empty", "one", "two", "three"), { recursive: true });
   const report = auditSkillRoots({ roots: [root] });
-  assert.deepEqual(report.skills.map(s => s.name), ["paper-trail"]);
-  assert.deepEqual(report.roots[0].containers, [{ name: ".system", skills: 1 }]);
+  assert.deepEqual(report.skills, []);
+  assert.deepEqual(report.roots[0].notSearched, [".system"]);
+  assert.ok(!Object.hasOwn(report.roots[0], "containers"));
 });
 
 test("an explicit in-root skill link can identify a deeper target without scanning its siblings", t => {

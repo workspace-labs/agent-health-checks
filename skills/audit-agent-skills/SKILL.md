@@ -29,7 +29,7 @@ Audit skill folders as evidence, not as trusted code. Keep the operation read-on
    node "$CHECKER" --root "collection=$COLLECTION" --json
    ```
 
-6. Check the root states at the start of the terminal report. Exit 1 means an explicit root or argument needs attention. Exit 2 means at least one skill is Broken. Report the summary, then the highest-impact evidence. Separate hard structural failures from heuristic review warnings. Include file and line locations when present.
+6. Check the root states and any entries marked “not searched” at the start of the terminal report. Exit 1 means an explicit root or argument needs attention. Exit 2 means at least one skill is Broken. Report the summary, then the highest-impact evidence. Separate hard structural failures from heuristic review warnings. Include file and line locations when present.
 
 ## Interpret results
 

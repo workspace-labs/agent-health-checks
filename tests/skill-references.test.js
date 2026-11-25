@@ -46,7 +46,7 @@ test("a link into dist checks the disk even when its target lies beyond the file
   }
 });
 
-test("explicit missing references in code and prose are Broken while their existing controls pass", t => {
+test("conventional missing paths in code and prose are Broken while other bundle folders receive review", t => {
   const { scan } = fixture(t, [
     "Run `./scripts/missing.sh` and `./scripts/ok.sh`.",
     "Read ${CLAUDE_SKILL_DIR}/references/gone.md and ${CLAUDE_SKILL_DIR}/references/ok.md.",
@@ -57,7 +57,7 @@ test("explicit missing references in code and prose are Broken while their exist
   assert.deepEqual(referenceFindings(skill).map(f => [f.file, f.line, f.severity, f.message]), [
     ["SKILL.md", 5, "error", "Referenced file does not exist: ./scripts/missing.sh"],
     ["SKILL.md", 6, "error", "Referenced file does not exist: ${CLAUDE_SKILL_DIR}/references/gone.md"],
-    ["SKILL.md", 7, "error", "Referenced file does not exist: recipes/missing.txt"],
+    ["SKILL.md", 7, "review", "Could not verify reference: recipes/missing.txt"],
   ]);
 });
 
@@ -72,9 +72,9 @@ test("nested Markdown links use their document directory while bundle paths and 
     "agents/openai.yaml": 'interface:\n  icon_small: "./icons/small.svg"\n  icon_large: "./icons/large.svg"',
   });
   assert.deepEqual(referenceFindings(scan()).map(f => [f.file, f.line, f.message]), [
-    ["agents/openai.yaml", 3, "Referenced file does not exist: ./icons/large.svg"],
-    ["manual/guide.md", 1, "Referenced file does not exist: missing.md"],
-    ["manual/guide.md", 4, "Referenced file does not exist: ../icons/figure.svg"],
+    ["agents/openai.yaml", 3, "Could not verify reference: ./icons/large.svg"],
+    ["manual/guide.md", 1, "Could not verify reference: missing.md"],
+    ["manual/guide.md", 4, "Could not verify reference: ../icons/figure.svg"],
   ]);
 });
 
@@ -99,9 +99,8 @@ test("absolute and home links and uncertain relative file references receive an 
     ["structure", "review", "Could not verify reference: /etc/hosts"],
     ["structure", "review", "Could not verify reference: ~/shared/index.md"],
     ["structure", "review", "Could not verify reference: elsewhere/example.md"],
+    ["structure", "review", "Could not verify reference: ../other/notes.md"],
   ]);
-  assert.deepEqual(findings.filter(f => f.code === "reference-escape").map(f => f.message),
-    ["Relative reference leaves the skill folder: ../other/notes.md"]);
   assert.equal(findings.some(f => f.severity === "error"), false);
 });
 
@@ -173,7 +172,7 @@ test("nested instructions accept present files under either working directory an
     ].join("\n"), "manual/from-here.sh": "", "tools/from-root.sh": "",
   });
   assert.deepEqual(referenceFindings(scan()).map(f => [f.line, f.message]), [
-    [2, "Referenced file does not exist: ./tools/gone.sh"], [2, "Referenced file does not exist: ./tools/from-root.sh"],
+    [2, "Could not verify reference: ./tools/gone.sh"], [2, "Could not verify reference: ./tools/from-root.sh"],
   ]);
 });
 
@@ -201,7 +200,7 @@ test("an internal link can resolve within the skill and normalized spellings on 
 
 test("skill-directory variables identify root-level files in prose without an action verb", t => {
   const { scan } = fixture(t, "Inputs are ${CLAUDE_SKILL_DIR}/known.txt and ${CLAUDE_SKILL_DIR}/missing.", { "known.txt": "" });
-  assert.deepEqual(referenceFindings(scan()).map(f => f.message), ["Referenced file does not exist: ${CLAUDE_SKILL_DIR}/missing"]);
+  assert.deepEqual(referenceFindings(scan()).map(f => f.message), ["Could not verify reference: ${CLAUDE_SKILL_DIR}/missing"]);
 });
 
 test("bare instruction filenames and non-Latin bundled folders include their missing and existing controls", t => {
@@ -210,9 +209,9 @@ test("bare instruction filenames and non-Latin bundled folders include their mis
     "The sources are ملفات/gone.md and ملفات/ok.md.",
   ].join("\n"), { "present.md": "", "paid.csv": "", "ملفات/ok.md": "" });
   assert.deepEqual(referenceFindings(scan()).map(f => [f.code, f.message]), [
-    ["broken-reference", "Referenced file does not exist: ملفات/gone.md"],
     ["unverified-reference", "Could not verify reference: missing.md"],
     ["unverified-reference", "Could not verify reference: invoice.csv"],
+    ["unverified-reference", "Could not verify reference: ملفات/gone.md"],
   ]);
 });
 
@@ -247,7 +246,7 @@ test("Markdown HTML images and anchors name local destinations, including root f
     "```html", '<img src="example.png">', "```",
   ].join("\n"), { "images/ok.png": "", "present.md": "" });
   assert.deepEqual(referenceFindings(scan()).map(f => f.message), [
-    "Referenced file does not exist: missing.png", "Referenced file does not exist: missing.md",
-    "Referenced file does not exist: images/gone.png",
+    "Could not verify reference: missing.png", "Could not verify reference: missing.md",
+    "Could not verify reference: images/gone.png",
   ]);
 });

@@ -3,15 +3,15 @@
 ## [0.6.0] - 2026-11-26
 
 - A skill installed through a top-level link into a scanned root now has one card with both locations. An escaping link names the unchecked target in a structure finding. Neither link can manufacture a duplicate-name warning.
-- A collection discovers skills through three directory levels. Containers report their names and skill counts, and a defect inside a nested skill appears on that skill's card. A root containing its own instructions is scanned directly. Empty folders produce no card. A populated install missing its instructions still reports Broken.
+- A collection discovers skills through three directory levels. Containers report their names and skill counts, and a defect inside a nested skill appears on that skill's card. The terminal and optional JSON field `roots[].notSearched` name hidden entries skipped during discovery. A root containing its own instructions is scanned directly. Empty folders produce no card. A populated install missing its instructions still reports Broken.
 - Instruction and interface metadata are read first. A large bundle and a reference to an existing file beyond the scan limit no longer cause a false Broken verdict. The report gives the number of unread files. Dependency and Python cache folders receive review findings with their counts. Git history stays outside the scan.
 - Differences in build output and vendor files now distinguish installations. Executable-looking text there receives the same static checks as text in an ordinary scripts folder. Desktop metadata and CRLF versus LF in text no longer create duplicate skills. Digest ordering is fixed across locales.
 - Identical copies keep the findings and worst status of their installations in either root order. Two physical copies with one name inside a root raise a duplicate-name finding even when their contents match.
 - The terminal lists each root's state first. A missing or unreadable explicit root, a file used as a root, and an omitted root path exit 1. Path-like arguments containing an equals sign keep their full path. Missing default roots stay quiet.
-- References in Markdown and the optional interface YAML are checked against case-exact names on disk. Punctuation, link titles, URL escapes and skill-directory prefixes are recognized. Existing files clear, missing bundled files report Broken, and ambiguous or external references receive review findings.
+- References in Markdown and the optional interface YAML are checked against case-exact names on disk. Punctuation, link titles, URL escapes and skill-directory prefixes are recognized. A missing internal Markdown link or a missing script, reference or asset named in the skill instructions or interface YAML reports Broken. Unresolved project commands, links leaving the skill and references in other Markdown files now receive review findings.
 - The project checker reports the same release number. Its scan behavior is unchanged.
 
-Six existing contract tests changed:
+Existing contract tests changed as follows.
 
 1. `skill findings retain their frontmatter, name, length and trigger messages` uses a populated folder for the missing-instructions message. An empty folder is ignored.
 2. `skills scan forwards exact size, budget and unreadable-path messages to findings` expects unread counts for both kinds of limit. A zero file budget still reads the instructions.
@@ -19,6 +19,14 @@ Six existing contract tests changed:
 4. `skills JSON preserves finding identity across identical installations` pins the new root state and the digest in code-unit order.
 5. `skills report emits all six status keys, labels, axis grades and finding severities` supplies a draft file in the unfinished installation so it exercises Broken.
 6. `skills CLI exits 0 for a completed review, 2 for Broken, and 1 on argument failure` uses the same populated unfinished-install case for exit 2.
+7. `skill findings retain their reference, safety and agent profile messages` expects the review finding `unverified-reference` for the link leaving the skill.
+
+The fix round also updates eight inventory and reference tests introduced on this branch:
+
+- `hidden skill containers are listed as not searched and deep empty branches supply no Broken card` now checks disclosure of the skipped container.
+- `conventional missing paths in code and prose are Broken while other bundle folders receive review`, `skill-directory variables identify root-level files in prose without an action verb`, and `bare instruction filenames and non-Latin bundled folders include their missing and existing controls` now expect review for text outside the three conventional folders.
+- `nested Markdown links use their document directory while bundle paths and YAML icons use the skill root` and `nested instructions accept present files under either working directory and retain document-relative link semantics` now expect review for unresolved links in secondary documents or a nonstandard YAML icon path.
+- `absolute and home links and uncertain relative file references receive an exact review note` now expects the same review code for an escaping relative link. `Markdown HTML images and anchors name local destinations, including root files, and fenced markup is an example` expects review for HTML targets outside the conventional folders.
 
 ## [0.5.0] - 2026-11-26
 

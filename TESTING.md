@@ -258,6 +258,18 @@ The fixtures cover linked installs, nested and hidden containers, individual ski
 
 A read-only default-root comparison used `node skills/audit-agent-skills/scripts/audit-skills.js --json` on the same Mac. There were 87 unique skills, 243 findings, two Broken cards, 18 empty cards and 41 duplicate-name findings on v0.5.0. On 0.6.0 there were 93 unique skills, 411 findings, 16 Broken cards, zero empty cards and 23 duplicate-name findings. Both exited 2. The new scan counted 18 linked locations, discovered 19 skills in the synced container, and included eligible system and backup containers. Some reported relative paths occur in shell examples intended to run in the caller's project. The scan verifies the filesystem relative to the skill and cannot infer that caller's working directory.
 
+#### 0.6.0 fix round 1
+
+The same four local runtimes ran `node --test --test-reporter=tap`. Each passed 403/403 tests, with zero failures and zero skips. The focused cases can be repeated with:
+
+```bash
+node --test tests/skill-reference-verdicts.test.js tests/skill-hidden-roots.test.js
+```
+
+Replaying these 15 cases against the checker from `bd027d5` produced 12 failures and 3 passing controls. With the fix, a missing conventional script in the instructions still reports Broken. A caller's project command and a README picture both receive review findings. The discovery tests cover backup folders, system skills, hidden entries inside visible containers, links, and the roots header.
+
+A read-only scan of the three default roots returned 84 unique skills, 367 findings, zero empty cards and 18 duplicate-name findings across 9 names. All 16 cards marked Broken by `bd027d5` cleared or fell outside discovery. One skill acquired a Broken verdict. Its instructions explicitly named two absent files in the conventional references directory. That explains exit 2.
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:

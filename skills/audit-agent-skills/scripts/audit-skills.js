@@ -195,6 +195,8 @@ function collectFiles(skillDir, rootReal, limits, discoveryDepth = Infinity) {
 
   function walk(entries, parent, depth) {
     for (const entry of entries) {
+      // A candidate without a guide uses the same discovery boundary on this second walk.
+      if (discoveryDepth !== Infinity && entry.name.startsWith(".") && (entry.isDirectory() || entry.isSymbolicLink())) continue;
       const rel = parent ? parent + "/" + entry.name : entry.name;
       const absolute = path.join(skillDir, rel);
       if (entry.isSymbolicLink()) { skipLink(absolute, rel); continue; }
@@ -253,19 +255,72 @@ function overlapScore(a, b) {
   return both / Math.min(aa.size, bb.size);
 }
 
+function escapedMarkdown(text, at) {
+  let start = at;
+  while (start > 0 && text[start - 1] === "\\") start--;
+  return (at - start) % 2 === 1;
+}
+
+// Match equal-length backtick runs within a paragraph. Index each run once so an
+// unmatched opening tick cannot hide later links or force repeated forward scans.
+function inlineCodeLookup(lines) {
+  const starts = [], spans = [], runs = [], previous = new Map();
+  let offset = 0;
+  function finishParagraph() {
+    for (let i = 0; i < runs.length; i++) {
+      const open = runs[i];
+      if (open.escaped || open.next === undefined) continue;
+      const close = runs[open.next];
+      spans.push([open.at, close.at + close.width]);
+      i = open.next;
+    }
+    runs.length = 0;
+    previous.clear();
+  }
+  for (const line of lines) {
+    starts.push(offset);
+    if (!line.trim() || /^ {0,3}(?:`{3,}|~{3,})/.test(line)) {
+      finishParagraph();
+    } else {
+      for (const match of line.matchAll(/`+/g)) {
+        const width = match[0].length;
+        const prior = previous.get(width);
+        if (prior) prior.next = runs.length;
+        const run = { at: offset + match.index, width, escaped: escapedMarkdown(line, match.index) };
+        previous.set(width, run);
+        runs.push(run);
+      }
+    }
+    offset += line.length + 1;
+  }
+  finishParagraph();
+  let index = 0;
+  return (line, column) => {
+    const at = starts[line] + column;
+    while (index < spans.length && spans[index][1] <= at) index++;
+    if (index === spans.length || at < spans[index][0]) return "";
+    return at === spans[index][0] ? "opening" : "inside";
+  };
+}
+
 // Markdown destinations use the containing document. Instruction paths beginning with a
 // bundled folder or the skill-directory variable use the skill's installation directory.
 function referencesIn(file, bundleFolders) {
   const refs = new Map();
   const yaml = file.rel === "agents/openai.yaml";
   if (!yaml && !/\.md$/i.test(file.rel)) return refs.values();
+  const entryDocument = yaml || file.rel === "SKILL.md";
   const variable = "${CLAUDE_SKILL_DIR}/";
   let fence = "";
   let shell = false;
   const lines = file.text.split(/\r?\n/);
+  const inCode = entryDocument && inlineCodeLookup(lines);
+  let resumeLine = -1, resumeColumn = 0;
   for (let i = 0; i < lines.length; i++) {
+    if (i < resumeLine) continue;
+    const continuation = i === resumeLine;
     const line = lines[i];
-    const delimiter = !yaml && line.match(/^ {0,3}(`{3,}|~{3,})/);
+    const delimiter = !continuation && !yaml && line.match(/^ {0,3}(`{3,}|~{3,})/);
     if (delimiter) {
       if (!fence) {
         fence = delimiter[1];
@@ -275,7 +330,8 @@ function referencesIn(file, bundleFolders) {
     }
     if (fence && !shell) continue;
 
-    function add(raw, link, instruction) {
+    function add(raw, kind, instruction = false) {
+      const link = kind !== "text";
       let value = raw.trim();
       if (!link) value = value.replace(/[.,;:!?]+$/, "").replace(/:\d+(?::\d+)?$/, "");
       if (!value || value.startsWith("#")) return;
@@ -287,7 +343,8 @@ function referencesIn(file, bundleFolders) {
       if (!target || /[<>{}*]|\.\.\.|(?:^|\/)path\/to(?:\/|$)/.test(target) || target === "URL") return;
       const absolute = /^(?:~(?:\/|$)|\/|file:)/i.test(target) || path.win32.isAbsolute(target);
       const bundled = bundleFolders.has(target.split("/")[0]);
-      const explicit = anchored || target.startsWith("./") || bundled;
+      const conventional = entryDocument && /^(?:\.\/)?(?:scripts|references|assets)\/.+/.test(target);
+      const explicit = anchored || target.startsWith("./") || bundled || conventional;
       // Filenames mentioned as examples or source-tree conventions do not direct the
       // reader to open them. Ambiguous file operands in instructions still get reviewed.
       const fileLike = /(?:^|\/)[^./\s][^/]*\.[a-z\d]{1,12}$/i.test(target);
@@ -295,22 +352,28 @@ function referencesIn(file, bundleFolders) {
       if (!link && !(explicit && !target.endsWith("/")) && !operand) return;
       const base = yaml || anchored || (!link && bundled) ? "." : path.posix.dirname(file.rel);
       const tryRoot = !link && !absolute && base !== "." && target.startsWith("./");
-      const ref = { value, target, base, absolute, tryRoot, certain: link || explicit, line: i + 1 };
+      const certain = conventional || (entryDocument && kind === "markdown");
+      const ref = { value, target, base, absolute, tryRoot, certain, line: i + 1 };
       const identity = JSON.stringify([ref.line, base, target]);
       if (!refs.has(identity) || ref.certain) refs.set(identity, ref);
     }
 
     // Consume a whole link (including its label and title) once. Recognize balanced
     // parentheses in unquoted destinations, and spaces in angle-bracket destinations.
+    function linkKind(column) {
+      const indented = !continuation && !yaml && /^(?: {4}|\t)/.test(line);
+      return fence || indented || escapedMarkdown(line, column) || (inCode && inCode(i, column)) ? "example" : "markdown";
+    }
     const destination = /^(?:<([^>]+)>|((?:\\.|[^()\s\\]|\((?:\\.|[^()\\])*\))+))/;
-    const definition = !yaml && line.match(/^\s{0,3}\[[^\]]+\]:\s*(.*)$/);
+    const definition = !continuation && !yaml && line.match(/^\s{0,3}\[[^\]]+\]:\s*(.*)$/);
     if (definition) {
       const match = definition[1].match(destination);
-      if (match) add(match[1] || match[2], true, false);
+      if (match) add(match[1] || match[2], linkKind(line.indexOf("[")));
       continue;
     }
     const token = /`([^`]+)`|\[([^\[\]]*)\]\(\s*|(?:^|[\s'"(=])((?:\$\{CLAUDE_SKILL_DIR\}\/|\.\.?\/|\/|[\p{L}\p{M}\p{N}_@+.~-]+\/)[^\s'"`\])]+|[\p{L}\p{M}\p{N}_@+~-]+(?:\.[\p{L}\p{M}\p{N}_@+-]+)+)|<(img|a)\b((?:"[^"]*"|'[^']*'|[^'"<>])*)>/giu;
     let match;
+    if (continuation) token.lastIndex = resumeColumn;
     const firstWord = line.search(/\S/);
     while ((match = token.exec(line))) {
       const prefix = line.slice(Math.max(0, match.index - 100), match.index);
@@ -320,7 +383,7 @@ function referencesIn(file, bundleFolders) {
         const wanted = match[4].toLowerCase() === "img" ? "src" : "href";
         const attributes = /\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+)))?/g;
         for (const attr of match[5].matchAll(attributes)) {
-          if (attr[1].toLowerCase() === wanted) add(attr[2] || attr[3] || attr[4] || "", true, false);
+          if (attr[1].toLowerCase() === wanted) add(attr[2] || attr[3] || attr[4] || "", "html");
         }
       } else if (match[2] !== undefined) {
         if (fence) continue;
@@ -344,14 +407,19 @@ function referencesIn(file, bundleFolders) {
           end = lines[lastLine].match(closing);
         }
         if (!end) continue;
-        add((dest[1] || dest[2]).replace(/\\([()])/g, "$1"), true, false);
+        add((dest[1] || dest[2]).replace(/\\([()])/g, "$1"), linkKind(match.index));
         if (lastLine === i) token.lastIndex = endOffset + end[0].length;
         else {
-          for (let j = i + 1; j < lastLine; j++) lines[j] = "";
-          lines[lastLine] = lines[lastLine].slice(endOffset + end[0].length);
+          resumeLine = lastLine;
+          resumeColumn = endOffset + end[0].length;
           break;
         }
       } else if (match[1] !== undefined) {
+        // A closing tick from a multiline span can precede another inline span.
+        if (inCode && inCode(i, match.index) !== "opening") {
+          token.lastIndex = match.index + 1;
+          continue;
+        }
         // A code span can contain either a single path (including spaces) or a command.
         const span = match[1];
         const words = Array.from(span.matchAll(/"([^"]+)"|'([^']+)'|([^\s]+)/g), w => w[1] || w[2] || w[3]);
@@ -361,11 +429,11 @@ function referencesIn(file, bundleFolders) {
         if (isCommand) {
           for (let w = 0; w < words.length; w++) {
             if (["--output", "--output-dir", "-o"].includes(words[w - 1])) continue;
-            if (!words[w].startsWith("-") && words[w].includes("/")) add(words[w], false, instruction);
+            if (!words[w].startsWith("-") && words[w].includes("/")) add(words[w], "text", instruction);
           }
-        } else add(span, false, instruction);
+        } else add(span, "text", instruction);
       } else if (!/(?:^|\s)(?:--output(?:-dir)?|-o)\s*=?\s*$/.test(prefix)) {
-        add(match[3], false, instruction);
+        add(match[3], "text", instruction);
       }
     }
   }
@@ -396,6 +464,7 @@ function referenceInspector(skillDir) {
       target = path.relative(skillDir, target).split(path.sep).join("/");
       start = skillDir;
     }
+    if (!inside(skillDir, path.resolve(start, target))) return "unknown";
     let parts = target.split("/");
     let links = 0;
     for (let i = 0; i < parts.length; i++) {
@@ -403,7 +472,7 @@ function referenceInspector(skillDir) {
       if (!part || part === ".") continue;
       if (part === "..") {
         start = path.dirname(start);
-        if (!inside(skillDir, start)) return "escape";
+        if (!inside(skillDir, start)) return "unknown";
         continue;
       }
       const names = entries(start);
@@ -476,8 +545,7 @@ function auditCandidate(candidate, limits) {
         if (state === "missing" || alternative === "present") state = alternative;
       }
       if (state === "present") continue;
-      if (state === "escape") findings.push(finding("safety", "review", "reference-escape", `Relative reference leaves the skill folder: ${ref.value}`, file.rel, ref.line, "Keep bundled references inside the skill directory."));
-      else if (state === "missing" && ref.certain) findings.push(finding("structure", "error", "broken-reference", `Referenced file does not exist: ${ref.value}`, file.rel, ref.line, "Add the file or correct the relative path."));
+      if (state === "missing" && ref.certain) findings.push(finding("structure", "error", "broken-reference", `Referenced file does not exist: ${ref.value}`, file.rel, ref.line, "Add the file or correct the relative path."));
       else findings.push(finding("structure", "review", "unverified-reference", `Could not verify reference: ${ref.value}`, file.rel, ref.line, "Confirm the intended location before changing this reference."));
     }
     if (file.rel.startsWith("references/") && file.rel.split("/").length > 2) findings.push(finding("structure", "review", "deep-reference", `Reference is nested more than one level: ${file.rel}`, file.rel, 1, "Keep references shallow so agents can discover them reliably."));
@@ -570,7 +638,7 @@ function hasGuide(entries) {
 }
 
 function discoveryDirectory(name) {
-  return name !== ".git" && name !== "node_modules";
+  return !name.startsWith(".") && name !== "node_modules";
 }
 
 function discoverInstalls(context, add, links) {
@@ -578,6 +646,10 @@ function discoverInstalls(context, add, links) {
   if (hasGuide(entries)) {
     add(context, root.path, real);
     return;
+  }
+
+  function recordHidden(dir) {
+    (report.notSearched ||= []).push(path.relative(root.path, dir).split(path.sep).join("/"));
   }
 
   function search(dir, realDir, depth, result) {
@@ -590,7 +662,9 @@ function discoverInstalls(context, add, links) {
       return;
     }
     for (const entry of children) {
-      if (!entry.isDirectory()) {
+      if (entry.name.startsWith(".") && (entry.isDirectory() || entry.isSymbolicLink())) {
+        recordHidden(path.join(dir, entry.name));
+      } else if (!entry.isDirectory()) {
         result.populated = true;
       } else if (depth < 3 && discoveryDirectory(entry.name)) {
         search(path.join(dir, entry.name), path.join(realDir, entry.name), depth + 1, result);
@@ -599,8 +673,12 @@ function discoverInstalls(context, add, links) {
   }
 
   for (const entry of entries) {
-    if (!discoveryDirectory(entry.name)) continue;
     const dir = path.join(root.path, entry.name);
+    if (entry.name.startsWith(".")) {
+      recordHidden(dir);
+      continue;
+    }
+    if (!discoveryDirectory(entry.name)) continue;
     if (entry.isSymbolicLink()) {
       links.push({ context, dir });
     } else if (entry.isDirectory()) {
@@ -615,6 +693,7 @@ function discoverInstalls(context, add, links) {
     }
   }
   if (report.containers) report.containers.sort((a, b) => comparePath(a.name, b.name));
+  if (report.notSearched) report.notSearched.sort(comparePath);
 }
 
 function refusedLink(context, dir, target, errorCode) {
@@ -804,7 +883,10 @@ function parseCli(argv) {
 
 function printHuman(report, explicitRoots) {
   for (const root of report.roots) {
-    if (explicitRoots || root.state !== "missing") console.log(`${root.label} (${root.path}) — ${root.state}`);
+    if (explicitRoots || root.state !== "missing") {
+      console.log(`${root.label} (${root.path}) — ${root.state}`);
+      if (root.notSearched) console.log(`  not searched: ${root.notSearched.join(", ")}`);
+    }
   }
   const s = report.summary.statuses;
   console.log(`Skill Doctor — ${report.summary.skills} unique skills (${report.summary.mirrors} identical mirrors)`);

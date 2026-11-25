@@ -4,11 +4,11 @@ The scanner implements a conservative shared contract plus separate Claude and C
 
 ## Shared Agent Skills contract
 
-- A skill is a directory containing `SKILL.md`. An explicit root may be one skill. Collection discovery looks up to three directory levels below the root and records the skill count for each container. Hidden containers are included. A backup tree within the search depth can therefore contribute copies. Discovery skips Git history and Node dependency folders. Empty folders are ignored.
+- A skill is a directory containing `SKILL.md`. An explicit root may be one skill. Collection discovery looks up to three directory levels below the root and records the skill count for each container. The roots report names hidden entries skipped during discovery, including backup and system directories. Discovery skips Git history and Node dependency folders. Empty folders are ignored.
 - YAML frontmatter requires `name` and `description`.
 - `name` must match the parent directory, use lowercase letters, digits, and hyphens, and avoid leading, trailing, or consecutive hyphens.
 - The body should stay concise and progressively disclose detail through `scripts/`, `references/`, and `assets/`.
-- Markdown links resolve relative to their document. Skill-folder variables and bundle-root paths refer to the installation. Referenced names must match the case on disk. An uncertain target receives a review finding.
+- Markdown links resolve relative to their document. Skill-folder variables and bundle-root paths refer to the installation. Referenced names must match the case on disk. In the skill instructions and optional interface YAML, a missing internal Markdown link or a missing file named under `scripts/`, `references/` or `assets/` is a structural error. Other unresolved references, including links in a README, receive a review finding.
 
 ## Claude profile
 

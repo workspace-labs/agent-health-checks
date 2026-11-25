@@ -9,7 +9,7 @@ Pass `--json` to either checker. Both reports use `schemaVersion: 1` and identif
 | `schemaVersion`, `checkerVersion` | Numeric schema version (`1`) and the checker release string. |
 | `generatedAt` | UTC timestamp for this run in ISO 8601 format. |
 | `readOnly`, `disclaimer` | The boolean `true` and the description of the scan's limits. |
-| `roots` | Each requested root has `id`, `label`, `path`, `exists`, `state` and a `skills` count. The four state strings are `read`, `missing`, `not a folder` and `unreadable`. An existing root that cannot be listed retains `unreadable: true`. The optional `containers` array contains `{ name, skills }` for each top-level container, recording its folder name and number of discovered skills. |
+| `roots` | Each requested root has `id`, `label`, `path`, `exists`, `state` and a `skills` count. The four state strings are `read`, `missing`, `not a folder` and `unreadable`. An existing root that cannot be listed retains `unreadable: true`. The optional `containers` array contains `{ name, skills }` for each top-level container, recording its folder name and number of discovered skills. Optional `notSearched` lists hidden entries skipped during discovery as paths relative to that root. |
 | `summary` | Counts of unique `skills`, identical `mirrors`, `findings`, and one count per key in `statuses`. |
 | `skills` | Array of unique skills. Copies with the same name and digest share an entry, retain findings from each installation and take the worst status. Multiple physical copies with the same name within one root raise a duplicate-name finding. A recognized linked installation adds a source to the target card. |
 
@@ -37,7 +37,7 @@ Finding identity also includes the enclosing skill's **digest and list of instal
 
 The skill's `id` joins its name and digest with a colon. The digest is 64 lowercase hexadecimal characters. For an ordinary skill, sort scanned files by relative path in UTF-16 code-unit order. Omit `.DS_Store`, `Thumbs.db` and `desktop.ini`. Hash UTF-8 text with CRLF normalized to LF. Hash binary or non-UTF-8 files with their original bytes. Both use SHA-256. Use the marker `oversized:<size>` for an oversized file. Feed each relative path, a NUL byte, the hash or marker, and a final NUL byte into the outer SHA-256. A matching digest describes the scanned content. The unread findings give the extent of excluded content. For a refused root symlink, the hash input consists of the following NUL-separated values in order. It starts with the literal `skill-symlink-refusal`, rule code, entry name, displayed root, displayed link path, and either the resolution error code or the displayed resolved path.
 
-The terminal report starts with root states. An unavailable explicit root exits **1**, including when another root contains a Broken skill. A missing default root is quiet in the terminal. The JSON report includes the state of each requested root. A completed scan exits **2** when any skill is Broken and **0** otherwise. A missing argument to `--root`, an unknown option or a caught failure exits **1**. Help and version requests exit **0**.
+The terminal report starts with root states and labels skipped hidden entries “not searched”. An unavailable explicit root exits **1**, including when another root contains a Broken skill. A missing default root is quiet in the terminal. The JSON report includes the state of each requested root. A completed scan exits **2** when any skill is Broken and **0** otherwise. A missing argument to `--root`, an unknown option or a caught failure exits **1**. Help and version requests exit **0**.
 
 The CommonJS module exports the functions `auditSkillRoots`, `parseFrontmatter` and `overlapScore`, plus `AXES` and `DEFAULT_LIMITS`. The functions return their results synchronously.
 
@@ -50,6 +50,8 @@ All three codes use the structure axis and review severity. Angle brackets mark 
 | `unread-directory` | `Skipped <relative directory> (unread files: <n>)` |
 | `unread-files` | `Files not read because of scan limits: <n>` |
 | `unverified-reference` | `Could not verify reference: <reference>` |
+
+A missing file can produce `broken-reference` only when `SKILL.md` or `agents/openai.yaml` claims a bundled file through an internal Markdown link outside code or a path under `scripts/`, `references/` or `assets/`. Those folder paths can start with `./` or `${CLAUDE_SKILL_DIR}/`. Unresolved paths in other Markdown files, uncertain inputs and links leaving the skill produce `unverified-reference` with review severity.
 
 The existing `symlink-root-escape` finding now uses the structure axis and the message `Refused skill symlink escaping <root>. Target <target> was not checked.` Its severity is review. Refused install links are excluded from duplicate-name checks.
 

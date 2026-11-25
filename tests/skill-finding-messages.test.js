@@ -86,7 +86,7 @@ test("skill findings retain their reference, safety and agent profile messages",
   check(scan(root)[0], {
     "claude-reserved-name": "Claude reserves 'anthropic' and 'claude' in custom skill names",
     "allowed-tools-extension": "allowed-tools is a model-specific frontmatter extension",
-    "reference-escape": "Relative reference leaves the skill folder: ../outside.md",
+    "unverified-reference": "Could not verify reference: ../outside.md",
     "broken-reference": "Referenced file does not exist: missing.md",
     "deep-reference": "Reference is nested more than one level: references/extra/notes.md",
     "reference-no-toc": "Long reference has no contents section: references/extra/notes.md",
