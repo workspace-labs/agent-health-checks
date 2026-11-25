@@ -205,6 +205,35 @@ The 0.5.0 runs above are local. The hosted macOS, Linux and Windows results furt
 
 On the same Mac, `node --test --test-reporter=tap` passed 332/332 on each of Node 20.20.2, 22.23.1, 24.22.1 and 26.13.1, with zero skips. Running `node --test tests/project-source-rules.test.js tests/project-coverage.test.js` with the updated fixtures gave 10 failures on `3f1ec2f` and 65/65 passes after the fixes. Six failures covered global and indirect eval calls. Four covered markup and styles, including the same static site with and without a README. The real Electron project retained its five findings and its fingerprint.
 
+#### GitHub Actions results for 0.5.0
+
+All nine jobs passed on commit `9a8853f`. Each cell shows **passed / skipped** out of 332 tests. Every job reported zero failures. [GitHub Actions run 45699925951](https://github.com/workspace-labs/agent-health-checks/actions/runs/45699925951)
+
+| System | Node 20.20.2 | Node 22.23.5 | Node 24.22.3 |
+|---|---:|---:|---:|
+| macOS | 332 / 0 | 332 / 0 | 332 / 0 |
+| Ubuntu Linux | 332 / 0 | 332 / 0 | 332 / 0 |
+| Windows | 318 / 14 | 318 / 14 | 318 / 14 |
+
+**Known Windows coverage gap.** The Windows jobs skipped the 14 tests below. Each creates a real symbolic link. All 14 passed on macOS and Ubuntu for every Node version in the matrix. The new 0.5.0 case checks that a linked Git info directory cannot supply ignore rules. [Windows job log](https://github.com/workspace-labs/agent-health-checks/actions/runs/45699925951/job/139507053467)
+
+| Test file under `tests/` | Skipped test name |
+|---|---|
+| `project-coverage.test.js` | a symlinked info directory cannot supply ignore rules |
+| `project-doctor-context.test.js` | ordinary in-project links stay visible without duplicating findings from their target |
+| `project-doctor-reading.test.js` | TypeScript substitution refuses a matching source symlink escaping the project |
+| `project-doctor-reading.test.js` | tablet symlinked metadata cannot exclude the snapshot |
+| `project-doctor.test.js` | broken project symlinks are disclosed with a safe resolution code |
+| `project-doctor.test.js` | scan bounds and escaping symlinks remain visible |
+| `project-entry-checks.test.js` | links to external files and output directories cannot confirm missing main or bin |
+| `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing |
+| `project-import-resolution.test.js` | absolute internal links resolve through the spelling used to open the project |
+| `project-import-resolution.test.js` | imports resolve internal file and directory links and refuse links crossing the project boundary |
+| `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit |
+| `skill-doctor.test.js` | broken skill symlinks are explicit safety findings |
+| `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest |
+| `skill-doctor.test.js` | symlinks escaping a declared root are refused |
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:
