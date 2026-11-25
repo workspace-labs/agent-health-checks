@@ -45,7 +45,7 @@ For projects written in another language, a **Healthy** result means the source 
 
 ## Run them
 
-Both checkers live in [`skills/`](skills). They are plain Node scripts — no dependencies, no install step, no network access. Set the shell variable `PROJECT_DIR` to the absolute path of the project you want to check. Use a trusted clone outside that project.
+Both checkers live in [`skills/`](skills). They are plain Node scripts — no dependencies, no install step, no network access. Use a trusted clone outside the project you check.
 
 ```bash
 git clone https://github.com/workspace-labs/agent-health-checks.git
@@ -55,7 +55,7 @@ cd agent-health-checks
 node skills/audit-agent-skills/scripts/audit-skills.js
 
 # check the code before an agent changes it
-node skills/audit-project-health/scripts/audit-project.js --path "${PROJECT_DIR:?Set PROJECT_DIR to the absolute project path}"
+node skills/audit-project-health/scripts/audit-project.js --path /absolute/project/path
 ```
 
 Add `--json` for a machine-readable report. Run either script with `--version` alone to print its release. The [report format](REPORT-FORMAT.md) lists the fields and exit codes for each checker.
@@ -76,7 +76,7 @@ cp -R skills/audit-agent-skills/. "$HOME/.claude/skills/audit-agent-skills/"
 cp -R skills/audit-project-health/. "$HOME/.claude/skills/audit-project-health/"
 ```
 
-To update an installed copy, get the newer release and repeat the copy steps from its root.
+To update, first remove the two old skill folders, `~/.claude/skills/audit-agent-skills` and `~/.claude/skills/audit-project-health`. Then run the install commands above from the new release.
 
 For Codex, put each skill folder in `~/.agents/skills` for personal use. Inside a repository, Codex checks `.agents/skills` at each directory from the working directory up to the repository root. [OpenAI’s local skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)
 
@@ -88,9 +88,9 @@ Neither script executes what it inspects, reaches the network, or writes to anyt
 
 **It never runs what it inspects.** Static evidence only — no executing bundled scripts, no network, no installs. You are inspecting something you don't yet trust; running it first is the wrong order.
 
-**Project findings** give a file and line, the check that raised the finding, its impact, how to verify it, and a recommended next step. A finding that counts several occurrences may point to just one location. Each finding has a confidence level of *confirmed*, *likely*, or *recommendation*.
+**Every finding carries a location.** A finding you can't walk to is a rumour. Project findings give a file and line, the check that raised the finding, its impact, how to verify it, and a recommended next step. A finding that counts several occurrences may point to just one location. Skill findings give the check area, severity, location, and a message. The skills JSON also includes the rule code and a suggestion. The terminal shows up to eight findings per skill.
 
-**Skill findings** give the check area, severity, location, and a message. The JSON also includes the rule code and a suggestion. The terminal shows up to eight findings per skill.
+**The project checker labels its own certainty.** *Confirmed* (proven by the evidence), *likely* (a real risk still needing a runtime check), *recommendation* (an improvement, not a bug). A scanner that states everything at the same volume gets ignored at the same volume. The skills checker uses the severity labels *error* and *review*.
 
 **It fails closed and stays honest about its edges.** A link escaping its own folder is refused and reported, not followed. Scans are bounded — and whatever got skipped for size stays visible in the report rather than quietly counting as clean.
 
@@ -100,9 +100,11 @@ Neither script executes what it inspects, reaches the network, or writes to anyt
 
 ## Diagnosis is not treatment
 
-This repository contains the two read-only checkers. Their work ends with a report.
+This is the load-bearing rule: **the checker has no power to fix anything.** This repository contains the two read-only checkers. Their work ends with a report.
 
 In the author's own workflow outside this repository, a fresh scan supplies the evidence for a repair task. A person approves the task before the repair starts. The author then backs up the affected files, checks the change, and scans again to compare the results.
+
+Two reasons it's built that way. A scanner that can also repair will eventually repair something it misdiagnosed, confidently and at scale. And the evidence a person approves has to be the evidence *as of the approval* — not a screenshot of last week's scan, which is how you end up authorising a fix for a problem that has already moved.
 
 ---
 
@@ -138,4 +140,4 @@ An honest accounting:
 
 ---
 
-by Workspace Labs · Drawn from a working system, not a thought experiment — see a showcase of it running, and the pattern it sits beside: separation of duties for AI agents.
+<sub>by Workspace Labs · Drawn from a working system, not a thought experiment.</sub>

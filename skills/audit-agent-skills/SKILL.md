@@ -10,7 +10,7 @@ Audit skill folders as evidence, not as trusted code. Keep the operation read-on
 ## Run the audit
 
 1. Start with the full path of this trusted `SKILL.md`. Resolve the [bundled scanner](scripts/audit-skills.js) from the folder containing this file. Set `CHECKER` to the scanner's absolute path after resolving symlinks. Never locate it from the working directory.
-2. Resolve each existing collection root the same way. For a default scan, check all three roots (`~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`). Stop if the scanner resolves outside its trusted skill folder or inside a collection or skill being checked. For a scan that includes this installed copy, use a separate trusted copy outside all targets and repeat the path checks.
+2. Stop if the scanner resolves outside its trusted skill folder. Run this installed copy even when its own folder is among the skills being checked. The default scan reads skills in `~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`.
 3. Run the default scan for a terminal report.
 
    ```bash
@@ -43,7 +43,7 @@ Treat every result as static evidence. A clean report does not prove runtime saf
 
 ## Safety rules
 
-- Never execute files found inside an audited skill.
+- Never execute files discovered as evidence during the scan.
 - Never fetch dependencies or follow external links during the audit.
 - Never edit, repair, normalize, or install a skill unless the user separately approves that work.
 - Refuse symlinks that leave their declared skill root.

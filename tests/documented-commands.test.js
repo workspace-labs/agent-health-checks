@@ -7,8 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-function readInstructions(skill) {
-  const skillMd = fs.realpathSync(path.join(__dirname, "..", "skills", skill, "SKILL.md"));
+function readInstructions(dir) {
+  const skillMd = fs.realpathSync(path.join(dir, "SKILL.md"));
   const text = fs.readFileSync(skillMd, "utf8");
   const link = text.match(/\[bundled scanner\]\(([^)]+)\)/);
   assert.ok(link, "instructions must identify the bundled scanner");
@@ -46,7 +46,11 @@ test("published skill commands run the bundled checkers from either working dire
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const home = path.join(temp, "home");
   const collection = path.join(temp, "sample collection");
-  writeSkill(path.join(home, ".claude", "skills"), "default-sample");
+  const shippedSkills = path.join(__dirname, "..", "skills");
+  const defaultRoot = path.join(home, ".claude", "skills");
+  const installedChecker = path.join(defaultRoot, "audit-agent-skills");
+  writeSkill(defaultRoot, "default-sample");
+  fs.cpSync(path.join(shippedSkills, "audit-agent-skills"), installedChecker, { recursive: true });
   writeSkill(collection, "explicit-sample");
 
   const unrelated = path.join(temp, "empty folder");
@@ -58,8 +62,8 @@ test("published skill commands run the bundled checkers from either working dire
     fs.writeFileSync(path.join(project, "scripts", file), 'console.log("fixture script");\n');
   }
 
-  const skills = readInstructions("audit-agent-skills");
-  const projects = readInstructions("audit-project-health");
+  const skills = readInstructions(installedChecker);
+  const projects = readInstructions(path.join(shippedSkills, "audit-project-health"));
   const env = { ...process.env, HOME: home, USERPROFILE: home,
     COLLECTION: fs.realpathSync(collection), PROJECT: fs.realpathSync(project),
     PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH };
@@ -67,9 +71,10 @@ test("published skill commands run the bundled checkers from either working dire
   assert.equal(projects.commands.length, 2);
   for (const cwd of [unrelated, project]) {
     const skillReports = skills.commands.map(cmd => run(cmd, cwd, { ...env, CHECKER: skills.checker }));
-    assert.match(skillReports[0], /Skill Doctor[^\n]*1 unique skills/);
+    assert.match(skillReports[0], /Skill Doctor[^\n]*2 unique skills/);
     assert.match(skillReports[0], /default-sample/);
-    assert.equal(JSON.parse(skillReports[1]).skills[0].name, "default-sample");
+    const names = JSON.parse(skillReports[1]).skills.map(s => s.name).sort();
+    assert.deepEqual(names, ["audit-agent-skills", "default-sample"]);
     assert.equal(JSON.parse(skillReports[2]).skills[0].name, "explicit-sample");
 
     const projectReports = projects.commands.map(cmd => run(cmd, cwd, { ...env, CHECKER: projects.checker }));
