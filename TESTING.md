@@ -138,6 +138,34 @@ The existing 512 KiB nested-input reader test passed on all four runtimes. In a 
 
 A read-only comparison on a real Electron project returned Watch on both versions, with five findings, zero confirmed, two likely and three recommendations. The findings matched in order, wording and location. Both runs had the same nine notices. A root-file notice moved from fourth to first when root files were inspected first. The source digest and finding IDs changed because the text budget covered a different set of files. The checker repository itself reported Healthy with zero findings.
 
+#### GitHub Actions results for 0.4.0
+
+All nine jobs passed at commit `0107553`. Each column shows **passed / skipped** for one Node version. Each job ran the 245-test suite with zero failures. [GitHub Actions run 45692729366](https://github.com/workspace-labs/agent-health-checks/actions/runs/45692729366)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 245 / 0 | 245 / 0 | 245 / 0 |
+| Ubuntu Linux | 245 / 0 | 245 / 0 | 245 / 0 |
+| Windows | 232 / 13 | 232 / 13 | 232 / 13 |
+
+**Known Windows coverage gap.** The suite skips the following 13 tests on Windows. Each creates a real symbolic link. All 13 passed on macOS and Ubuntu for all three Node versions. The first eight carried over from 0.3.0. The last five exercise behavior added in 0.4.0.
+
+| Test file under `tests/` | Skipped test name |
+|---|---|
+| `project-doctor-context.test.js` | ordinary in-project links stay visible without duplicating findings from their target |
+| `project-doctor-reading.test.js` | TypeScript substitution refuses a matching source symlink escaping the project |
+| `project-doctor-reading.test.js` | tablet symlinked metadata cannot exclude the snapshot |
+| `project-doctor.test.js` | scan bounds and escaping symlinks remain visible |
+| `project-doctor.test.js` | broken project symlinks are disclosed with a safe resolution code |
+| `skill-doctor.test.js` | symlinks escaping a declared root are refused |
+| `skill-doctor.test.js` | broken skill symlinks are explicit safety findings |
+| `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest |
+| `project-entry-checks.test.js` | links to external files and output directories cannot confirm missing main or bin |
+| `project-import-resolution.test.js` | imports resolve internal file and directory links and refuse links crossing the project boundary |
+| `project-import-resolution.test.js` | absolute internal links resolve through the spelling used to open the project |
+| `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit |
+| `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing |
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:
