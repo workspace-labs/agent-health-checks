@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.0] - 2026-11-26
+
+- A skill installed through a top-level link into a scanned root now has one card with both locations. An escaping link names the unchecked target in a structure finding. Neither link can manufacture a duplicate-name warning.
+- A collection discovers skills through three directory levels. Containers report their names and skill counts, and a defect inside a nested skill appears on that skill's card. A root containing its own instructions is scanned directly. Empty folders produce no card. A populated install missing its instructions still reports Broken.
+- Instruction and interface metadata are read first. A large bundle and a reference to an existing file beyond the scan limit no longer cause a false Broken verdict. The report gives the number of unread files. Dependency and Python cache folders receive review findings with their counts. Git history stays outside the scan.
+- Differences in build output and vendor files now distinguish installations. Executable-looking text there receives the same static checks as text in an ordinary scripts folder. Desktop metadata and CRLF versus LF in text no longer create duplicate skills. Digest ordering is fixed across locales.
+- Identical copies keep the findings and worst status of their installations in either root order. Two physical copies with one name inside a root raise a duplicate-name finding even when their contents match.
+- The terminal lists each root's state first. A missing or unreadable explicit root, a file used as a root, and an omitted root path exit 1. Path-like arguments containing an equals sign keep their full path. Missing default roots stay quiet.
+- References in Markdown and the optional interface YAML are checked against case-exact names on disk. Punctuation, link titles, URL escapes and skill-directory prefixes are recognized. Existing files clear, missing bundled files report Broken, and ambiguous or external references receive review findings.
+- The project checker reports the same release number. Its scan behavior is unchanged.
+
+Six existing contract tests changed:
+
+1. `skill findings retain their frontmatter, name, length and trigger messages` uses a populated folder for the missing-instructions message. An empty folder is ignored.
+2. `skills scan forwards exact size, budget and unreadable-path messages to findings` expects unread counts for both kinds of limit. A zero file budget still reads the instructions.
+3. `skills scan retains each distinct message for nested and root symlinks` pins the approved `symlink-root-escape` wording, including the unchecked target.
+4. `skills JSON preserves finding identity across identical installations` pins the new root state and the digest in code-unit order.
+5. `skills report emits all six status keys, labels, axis grades and finding severities` supplies a draft file in the unfinished installation so it exercises Broken.
+6. `skills CLI exits 0 for a completed review, 2 for Broken, and 1 on argument failure` uses the same populated unfinished-install case for exit 2.
+
 ## [0.5.0] - 2026-11-26
 
 - Every project report counts distinct JavaScript and TypeScript files reached by source rules. A project with only recognized unsupported source, such as Python or Go, now gets a low coverage finding and Watch. A mixed project receives a notice. HTML and CSS appear in the coverage notice only. A plain static site reports Healthy with a README and Watch for the missing README without one. Clean JavaScript still reports Healthy. The generic adapter documentation now limits TODO counting to the JavaScript and TypeScript source rules.

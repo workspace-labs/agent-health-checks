@@ -234,6 +234,30 @@ All nine jobs passed on commit `9a8853f`. Each cell shows **passed / skipped** o
 | `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest |
 | `skill-doctor.test.js` | symlinks escaping a declared root are refused |
 
+### Skills inventory and bundled references (0.6.0, 2026-11-26)
+
+Each local runtime ran `node --test --test-reporter=tap` on macOS. The timing measures the inventory scan itself after creating 2,000 empty folders and one skill three levels deep. A separate CLI test put a link cycle in the container and required the child to finish within two seconds.
+
+| Node | Passed | Failed | Skipped | Inventory scan |
+|---|---:|---:|---:|---:|
+| 20.20.2 | 388 | 0 | 0 | 34.9 ms |
+| 22.23.1 | 388 | 0 | 0 | 52.7 ms |
+| 24.22.1 | 388 | 0 | 0 | 34.9 ms |
+| 26.13.1 | 388 | 0 | 0 | 34.8 ms |
+
+Before implementation, the first 41 new cases produced 37 failures and four passing controls on v0.5.0. The complete set of 56 regression and control cases passed on 0.6.0. Replaying those same 56 cases on an archive of v0.5.0 produced 50 failures and six passes. The replay left zero fixture directories in its isolated temporary directory.
+
+Run from the repository root:
+
+```bash
+node --test tests/skill-inventory.test.js tests/skill-collection.test.js tests/skill-references.test.js
+node skills/audit-agent-skills/scripts/audit-skills.js --root skills
+```
+
+The fixtures cover linked installs, nested and hidden containers, individual skill roots, overlapping roots in both orders, explicit root errors, stable digests, cache and budget counts, and case-exact on-disk reference checks. Existing references remain valid beyond the read limit. The script safety control reports the same two findings in ordinary scripts and build output. Both shipped skills reported Universal with zero findings. The fixed digest fixture also passed under Czech and Estonian locale settings.
+
+A read-only default-root comparison used `node skills/audit-agent-skills/scripts/audit-skills.js --json` on the same Mac. There were 87 unique skills, 243 findings, two Broken cards, 18 empty cards and 41 duplicate-name findings on v0.5.0. On 0.6.0 there were 93 unique skills, 411 findings, 16 Broken cards, zero empty cards and 23 duplicate-name findings. Both exited 2. The new scan counted 18 linked locations, discovered 19 skills in the synced container, and included eligible system and backup containers. Some reported relative paths occur in shell examples intended to run in the caller's project. The scan verifies the filesystem relative to the skill and cannot infer that caller's working directory.
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:

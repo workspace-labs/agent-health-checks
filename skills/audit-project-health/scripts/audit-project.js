@@ -10,7 +10,7 @@ const { createPathProbe, resolveNodeEntry } = require("./project-paths");
 const { relativeImportLiterals } = require("./import-context");
 const { hasUtf16Mark, packageReadProblem, parsePackage } = require("./package-text");
 
-const CHECKER_VERSION = "0.5.0";
+const CHECKER_VERSION = "0.6.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,

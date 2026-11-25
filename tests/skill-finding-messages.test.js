@@ -43,7 +43,7 @@ function display(file) {
 
 test("skill findings retain their frontmatter, name, length and trigger messages", t => {
   const root = temp(t);
-  fs.mkdirSync(path.join(root, "absent"));
+  put(root, "absent/notes.txt", "Installation without instructions.");
   put(root, "no-front/SKILL.md", "plain text");
   put(root, "no-end/SKILL.md", "---\nname: no-end");
   put(root, "incomplete/SKILL.md", "---\nother: value\n---\n");
@@ -123,10 +123,13 @@ test("skills scan forwards exact size, budget and unreadable-path messages to fi
   const skill = path.join(root, "swatches");
   put(skill, "SKILL.md", guide("swatches"));
   put(skill, "large.txt", "x".repeat(256));
-  check(scan(root, { maxFileBytes: 200 })[0], { "oversized-file": "Skipped large.txt; it exceeds 200 bytes" });
+  check(scan(root, { maxFileBytes: 200 })[0], {
+    "oversized-file": "Skipped large.txt; it exceeds 200 bytes",
+    "unread-files": "Files not read because of scan limits: 1",
+  });
   check(scan(root, { maxFiles: 0, maxTotalBytes: 1000 })[0], {
     "scan-limit": "Stopped at the bounded scan limit (0 files / 1000 bytes)",
-    "missing-skill-md": "The skill directory has no readable SKILL.md",
+    "unread-files": "Files not read because of scan limits: 1",
   });
 
   // Inject the read errors so this works even when the test account can read every file.
@@ -168,7 +171,7 @@ test("skills scan retains each distinct message for nested and root symlinks", t
   function assertLinkFindings(errorCode) {
     const skills = Object.fromEntries(scan(root).map(s => [s.folder, s]));
     check(skills["outside-link"], {
-      "symlink-root-escape": `Refused skill symlink escaping ${display(root)}`,
+      "symlink-root-escape": `Refused skill symlink escaping ${display(root)}. Target ${display(outside)} was not checked.`,
     });
     check(skills["dangling-link"], {
       "symlink-root-unresolved": `Refused unresolved skill symlink (${errorCode})`,

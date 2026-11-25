@@ -23,13 +23,13 @@ Audit skill folders as evidence, not as trusted code. Keep the operation read-on
    node "$CHECKER" --json
    ```
 
-5. For an explicit collection, set `COLLECTION` to its full path. Repeat `--root` with a separate label and path for each additional collection.
+5. For an explicit collection or a single skill, set `COLLECTION` to its full path. Repeat `--root` with a separate label and path for each additional collection.
 
    ```bash
    node "$CHECKER" --root "collection=$COLLECTION" --json
    ```
 
-6. Report the summary, then the highest-impact evidence. Separate hard structural failures from heuristic review warnings. Include file and line locations when present.
+6. Check the root states at the start of the terminal report. Exit 1 means an explicit root or argument needs attention. Exit 2 means at least one skill is Broken. Report the summary, then the highest-impact evidence. Separate hard structural failures from heuristic review warnings. Include file and line locations when present.
 
 ## Interpret results
 
@@ -46,7 +46,7 @@ Treat every result as static evidence. A clean report does not prove runtime saf
 - Never execute files discovered as evidence during the scan.
 - Never fetch dependencies or follow external links during the audit.
 - Never edit, repair, normalize, or install a skill unless the user separately approves that work.
-- Refuse symlinks that leave their declared skill root.
-- Keep size and file-count limits enabled; skipped content must remain visible in findings.
+- Count a linked install as a source when its target is a skill inside a scanned root. Report the target of an escaping install link as unchecked.
+- Keep size and file-count limits enabled. Include unread file counts when describing a partial scan.
 
 Read [references/compatibility.md](references/compatibility.md) when explaining profile differences or adjusting checks for a newer Agent Skills revision.

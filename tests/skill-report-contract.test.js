@@ -66,13 +66,13 @@ test("skills JSON preserves finding identity across identical installations", (t
     message: "Referenced file does not exist: missing.md", file: "SKILL.md", line: 6,
     suggestion: "Add the file or correct the relative path.",
   }]);
-  // Known SHA-256 for these two files, including their relative names and LF bytes.
-  assert.equal(skill.digest, "c639ddd61abf1922047369e66e3dcbe685f24ec7b07c2b03f075a52a36911ae4");
+  // Known SHA-256 for these two relative names in code-unit order and their LF content.
+  assert.equal(skill.digest, "233656d02fadbd5c122050333304ec59018496157b8504dc000b4b9c092bae32");
   assert.equal(skill.id, name + ":" + skill.digest);
   const expectedRoots = roots.map((root) => ({
     ...root, path: root.path.startsWith(os.homedir() + path.sep) ? "~" + root.path.slice(os.homedir().length) : root.path,
   }));
-  assert.deepEqual(report.roots, expectedRoots.map((root) => ({ ...root, exists: true, skills: 1 })));
+  assert.deepEqual(report.roots, expectedRoots.map((root) => ({ ...root, exists: true, skills: 1, state: "read" })));
   assert.deepEqual(skill.sources, expectedRoots.map((root) => ({
     id: root.id, label: root.label, root: root.path, path: path.join(root.path, name),
     skillMd: path.join(root.path, name, "SKILL.md"),
@@ -89,6 +89,7 @@ test("skills report emits all six status keys, labels, axis grades and finding s
   install(root, "claude-helper", "Use when examining atmospheric pressure records.");
   install(root, "notes", "Use for notes.");
   fs.mkdirSync(path.join(root, "unfinished"));
+  fs.writeFileSync(path.join(root, "unfinished", "notes.txt"), "Draft.");
   const { skills, summary } = api.auditSkillRoots({ roots: [root] });
   const statuses = Object.fromEntries(skills.map((s) => [s.name, [s.statusKey, s.status]]));
   assert.deepEqual(statuses, {
@@ -118,6 +119,7 @@ test("skills CLI exits 0 for a completed review, 2 for Broken, and 1 on argument
   assert.equal(review.status, 0);
   assert.equal(JSON.parse(review.stdout).summary.statuses.review, 1);
   fs.mkdirSync(path.join(root, "unfinished"));
+  fs.writeFileSync(path.join(root, "unfinished", "notes.txt"), "Draft.");
   const broken = run(...scan);
   assert.equal(broken.status, 2);
   assert.equal(JSON.parse(broken.stdout).summary.statuses.broken, 1);

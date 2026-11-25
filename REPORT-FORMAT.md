@@ -9,9 +9,9 @@ Pass `--json` to either checker. Both reports use `schemaVersion: 1` and identif
 | `schemaVersion`, `checkerVersion` | Numeric schema version (`1`) and the checker release string. |
 | `generatedAt` | UTC timestamp for this run in ISO 8601 format. |
 | `readOnly`, `disclaimer` | The boolean `true` and the description of the scan's limits. |
-| `roots` | Each requested root has `id`, `label`, `path`, `exists` and a `skills` count. An existing root that cannot be listed also carries `unreadable: true`. |
+| `roots` | Each requested root has `id`, `label`, `path`, `exists`, `state` and a `skills` count. The four state strings are `read`, `missing`, `not a folder` and `unreadable`. An existing root that cannot be listed retains `unreadable: true`. The optional `containers` array contains `{ name, skills }` for each top-level container, recording its folder name and number of discovered skills. |
 | `summary` | Counts of unique `skills`, identical `mirrors`, `findings`, and one count per key in `statuses`. |
-| `skills` | Array of unique skills. Identical copies with the same name and digest share an entry. |
+| `skills` | Array of unique skills. Copies with the same name and digest share an entry, retain findings from each installation and take the worst status. Multiple physical copies with the same name within one root raise a duplicate-name finding. A recognized linked installation adds a source to the target card. |
 
 Each skill contains `id`, `name`, `folder`, `description`, `body` (trimmed instruction text), `frontmatter`, `digest`, `fileCount`, `totalBytes`, `sources`, `findings`, `axes`, `status`, `statusKey` and `counts` (`errors` and `review`).
 
@@ -33,13 +33,25 @@ Each skill contains `id`, `name`, `folder`, `description`, `body` (trimmed instr
 | `severity` | `error` or `review`. |
 | `suggestion` | Suggested next action. |
 
-Finding identity also includes the enclosing skill's **digest and list of install locations**. Each entry in `sources` contains the root's `id`, `label` and displayed `root`, the installed folder's `path` and the `skillMd` path. Home-relative paths display with a leading `~`. The list preserves root traversal order. Skills findings do not carry a separate finding ID or confidence level.
+Finding identity also includes the enclosing skill's **digest and list of install locations**. Each entry in `sources` contains the root's `id`, `label` and displayed `root`, the installed folder's `path` and the `skillMd` path. A linked install adds `isLink: true` to its source. Ordinary sources have the original five fields. Home-relative paths display with a leading `~`. The list preserves root traversal order. When a top-level install link identifies a skill deeper than normal discovery under overlapping roots, the most specific eligible root owns its target. Skills findings do not carry a separate finding ID or confidence level.
 
-The skill's `id` joins its name and digest with a colon. The digest is 64 lowercase hexadecimal characters. For an ordinary skill, sort the scanned files by relative path using `localeCompare`. For each file, hash its bytes with SHA-256 (or use `oversized:<size>` for an oversized entry). Feed the relative path, a NUL byte, the hex hash or oversized marker, and a final NUL byte into the outer SHA-256. File order can vary with the locale. For a refused root symlink, the hash input consists of the following NUL-separated values in order. It starts with the literal `skill-symlink-refusal`, rule code, entry name, displayed root, displayed link path, and either the resolution error code or the displayed resolved path.
+The skill's `id` joins its name and digest with a colon. The digest is 64 lowercase hexadecimal characters. For an ordinary skill, sort scanned files by relative path in UTF-16 code-unit order. Omit `.DS_Store`, `Thumbs.db` and `desktop.ini`. Hash UTF-8 text with CRLF normalized to LF. Hash binary or non-UTF-8 files with their original bytes. Both use SHA-256. Use the marker `oversized:<size>` for an oversized file. Feed each relative path, a NUL byte, the hash or marker, and a final NUL byte into the outer SHA-256. A matching digest describes the scanned content. The unread findings give the extent of excluded content. For a refused root symlink, the hash input consists of the following NUL-separated values in order. It starts with the literal `skill-symlink-refusal`, rule code, entry name, displayed root, displayed link path, and either the resolution error code or the displayed resolved path.
 
-A completed skills scan exits **0** if no skill is Broken and **2** if at least one is Broken. Both can produce a complete JSON report. A caught failure, including an unknown option, exits **1**. Help and version requests exit **0**.
+The terminal report starts with root states. An unavailable explicit root exits **1**, including when another root contains a Broken skill. A missing default root is quiet in the terminal. The JSON report includes the state of each requested root. A completed scan exits **2** when any skill is Broken and **0** otherwise. A missing argument to `--root`, an unknown option or a caught failure exits **1**. Help and version requests exit **0**.
 
 The CommonJS module exports the functions `auditSkillRoots`, `parseFrontmatter` and `overlapScore`, plus `AXES` and `DEFAULT_LIMITS`. The functions return their results synchronously.
+
+### Skill findings added in 0.6.0
+
+All three codes use the structure axis and review severity. Angle brackets mark variable values.
+
+| Code | Exact message |
+|---|---|
+| `unread-directory` | `Skipped <relative directory> (unread files: <n>)` |
+| `unread-files` | `Files not read because of scan limits: <n>` |
+| `unverified-reference` | `Could not verify reference: <reference>` |
+
+The existing `symlink-root-escape` finding now uses the structure axis and the message `Refused skill symlink escaping <root>. Target <target> was not checked.` Its severity is review. Refused install links are excluded from duplicate-name checks.
 
 ## Project report
 
