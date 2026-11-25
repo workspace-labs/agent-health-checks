@@ -366,3 +366,34 @@ node skills/audit-agent-skills/scripts/audit-skills.js --json
 | network-access | 22 | 30 |
 
 Counts are findings per unique skill, file and rule. Both shipped skills report Universal when scanned together. The one-MiB test measures the entire scanner subprocess, including JSON output, against a one-second limit.
+
+#### GitHub Actions for 0.7.0
+
+All nine jobs passed on commit `605692d`. Each cell shows **passed / skipped** out of 559 tests. Every job reported zero failures. [GitHub Actions run 45710824616](https://github.com/workspace-labs/agent-health-checks/actions/runs/45710824616)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 559 / 0 | 559 / 0 | 559 / 0 |
+| Ubuntu Linux | 559 / 0 | 559 / 0 | 559 / 0 |
+| Windows | 543 / 16 | 543 / 16 | 543 / 16 |
+
+Each Windows job skipped the same 16 symbolic-link tests, listed below. All 16 passed on macOS and Ubuntu across the three Node versions. [Windows job log](https://github.com/workspace-labs/agent-health-checks/actions/runs/45710824616/job/139544482512)
+
+| Test file under `tests/` | Skipped test name |
+|---|---|
+| `project-coverage.test.js` | a symlinked info directory cannot supply ignore rules |
+| `project-doctor-context.test.js` | ordinary in-project links stay visible without duplicating findings from their target |
+| `project-doctor-reading.test.js` | TypeScript substitution refuses a matching source symlink escaping the project |
+| `project-doctor-reading.test.js` | tablet symlinked metadata cannot exclude the snapshot |
+| `project-doctor.test.js` | broken project symlinks are disclosed with a safe resolution code |
+| `project-doctor.test.js` | scan bounds and escaping symlinks remain visible |
+| `project-entry-checks.test.js` | links to external files and output directories cannot confirm missing main or bin |
+| `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing |
+| `project-import-resolution.test.js` | absolute internal links resolve through the spelling used to open the project |
+| `project-import-resolution.test.js` | imports resolve internal file and directory links and refuse links crossing the project boundary |
+| `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit |
+| `skill-doctor.test.js` | broken skill symlinks are explicit safety findings |
+| `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest |
+| `skill-doctor.test.js` | symlinks escaping a declared root are refused |
+| `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence |
+| `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding |
