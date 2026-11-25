@@ -100,6 +100,20 @@ The same nine harmless examples produced eight false alarms on 0.2.0 and zero on
 
 In separate command-line comparisons, a 1,107-file Electron project went from one confirmed finding to zero. Its other five findings matched in every field and in order. For four real missing imports in `.js`, `.mjs`, `.cjs` and `.ts`, the complete reports matched apart from `checkerVersion` with the same fixed clock in both fixture runs.
 
+#### GitHub Actions results for 0.3.0
+
+All nine jobs passed at commit `70f17e8`. Each row gives the counts for each listed Node version. [GitHub Actions run 45685837204](https://github.com/workspace-labs/agent-health-checks/actions/runs/45685837204)
+
+| System | Node versions | Tests per job | Passed | Skipped | Failed |
+|---|---|---:|---:|---:|---:|
+| macOS | 20, 22, 24 | 190 | 190 | 0 | 0 |
+| Ubuntu Linux | 20, 22, 24 | 190 | 190 | 0 | 0 |
+| Windows | 20, 22, 24 | 190 | 182 | 8 | 0 |
+
+Windows skipped the eight symbolic-link tests described above. All 67 new tests passed on Windows, including the React cases that check paths and line numbers with CRLF line endings.
+
+The first macOS Node 22 job waited 15 minutes for a hosted runner. GitHub cancelled it before any steps ran. A single retry on the same commit passed all 190 tests. [First attempt](https://github.com/workspace-labs/agent-health-checks/actions/runs/45685837204/job/139458092327) · [Successful retry](https://github.com/workspace-labs/agent-health-checks/actions/runs/45685837204/job/139466993645)
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:
