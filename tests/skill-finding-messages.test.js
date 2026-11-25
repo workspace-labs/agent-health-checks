@@ -58,6 +58,7 @@ test("skill findings retain their frontmatter, name, length and trigger messages
     "missing-name": "Frontmatter is missing name",
     "missing-description": "Frontmatter is missing description",
     "empty-body": "SKILL.md has no instruction body",
+    "extra-frontmatter-fields": "Fields outside the Agent Skills specification: other (product unconfirmed)",
   });
   check(skills.wrong, {
     "name-too-long": "Skill name exceeds 64 characters",
@@ -78,19 +79,20 @@ test("skill findings retain their reference, safety and agent profile messages",
   const skill = path.join(root, "claude-notes");
   put(skill, "SKILL.md", [
     "---", "name: claude-notes", "description: " + description, "allowed-tools: Read", "---",
-    "[outside](../outside.md)", "[absent](missing.md)", "~/Desktop/", "apply_patch",
-    "dd if=", "eval(", "fetch(",
+    "[outside](../outside.md)", "[absent](missing.md)", "Maps live under /Users/alice", "apply_patch",
   ].join("\n"));
+  put(skill, "scripts/run.sh", "dd if=source");
+  put(skill, "scripts/run.js", "eval(command); fetch(url);");
   put(skill, "references/extra/notes.md", "text\n".repeat(101));
   put(skill, "agents/openai.yaml", "default_prompt: Read notes\ndependencies:\n  - type: sample\n");
   check(scan(root)[0], {
     "claude-reserved-name": "Claude reserves 'anthropic' and 'claude' in custom skill names",
-    "allowed-tools-extension": "allowed-tools is a model-specific frontmatter extension",
+    "allowed-tools-extension": "The Agent Skills specification marks allowed-tools as experimental",
     "unverified-reference": "Could not verify reference: ../outside.md",
     "broken-reference": "Referenced file does not exist: missing.md",
     "deep-reference": "Reference is nested more than one level: references/extra/notes.md",
     "reference-no-toc": "Long reference has no contents section: references/extra/notes.md",
-    "personal-path": "Machine- or workspace-specific path found: ~/Desktop/",
+    "personal-path": "Machine- or workspace-specific path found: /Users/alice",
     "model-specific-tool": "Model-specific capability found: apply_patch",
     "destructive-command": "Potentially destructive command appears in skill content",
     "code-execution": "Bundled code contains an execution primitive: eval(",

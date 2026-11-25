@@ -58,7 +58,7 @@ test("valid universal skill passes all six DNA axes", () => {
 test("separate Claude and Codex profiles produce directional readiness", () => {
   const root = tempRoot("profiles");
   put(root, "portable-helper", skillMd("portable-helper", "Use when the user asks for a portable profile demonstration."), {
-    "agents/openai.yaml": "policy:\n  allow_implicit_invocation: true\n",
+    "agents/openai.yaml": "interface:\n  default_prompt: Inspect the records.\n",
   });
   put(root, "claude-companion", skillMd("claude-companion", "Use when the user asks for a model naming demonstration."));
   const report = scan([root]);

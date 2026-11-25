@@ -10,7 +10,7 @@ const { createPathProbe, resolveNodeEntry } = require("./project-paths");
 const { relativeImportLiterals } = require("./import-context");
 const { hasUtf16Mark, packageReadProblem, parsePackage } = require("./package-text");
 
-const CHECKER_VERSION = "0.6.0";
+const CHECKER_VERSION = "0.7.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,
@@ -955,6 +955,12 @@ function parseArgs(argv) {
   return out;
 }
 
+// Escape individual output lines before adding the renderer's own line breaks.
+function terminalText(text) {
+  return text.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u206f]/g,
+    ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
 function humanReport(report) {
   const lines = [
     `Universal Project Doctor — ${report.projectName}`,
@@ -976,7 +982,7 @@ function humanReport(report) {
     lines.push("");
   }
   lines.push(report.disclaimer);
-  return lines.join("\n");
+  return lines.map(terminalText).join("\n");
 }
 
 if (require.main === module) {

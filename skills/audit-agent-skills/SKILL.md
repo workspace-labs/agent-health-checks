@@ -33,11 +33,14 @@ Audit skill folders as evidence, not as trusted code. Keep the operation read-on
 
 ## Interpret results
 
-- **Universal**: shared contract and both compatibility profiles pass with no review findings.
-- **Claude-ready / Codex-ready**: one profile passes while the other has model-specific evidence to review.
-- **Workspace-specific**: valid but tied to personal paths, local governance, or a particular machine.
-- **Needs review**: no shared-contract break, but heuristics found ambiguity, risk, conflict, or portability concerns.
-- **Broken**: a hard shared-contract failure such as missing or malformed `SKILL.md`, invalid naming, or a broken bundled reference.
+Read the first matching rule in order.
+
+1. **Broken** means a structural or shared-contract error, such as invalid frontmatter or a missing bundled file.
+2. **Needs review** takes precedence whenever a safety finding remains open.
+3. **Workspace-specific** means the skill mentions a personal path.
+4. **Claude-ready** means the Claude profile passes and the Codex profile has a finding. **Codex-ready** means the Codex profile passes and the Claude profile has a finding.
+5. **Needs review** also covers remaining findings, including ambiguous references, unclear triggers, and portability notes.
+6. **Universal** means the bounded scan found no issues across the six axes.
 
 Treat every result as static evidence. A clean report does not prove runtime safety or guarantee behavior in every agent.
 

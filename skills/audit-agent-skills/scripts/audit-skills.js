@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { isUtf8 } = require("node:buffer");
 
 const AXES = ["structure", "triggers", "safety", "portability", "claude", "codex"];
-const CHECKER_VERSION = "0.6.0";
+const CHECKER_VERSION = "0.7.0";
 const DEFAULT_LIMITS = Object.freeze({ maxFiles: 320, maxFileBytes: 1024 * 1024, maxTotalBytes: 6 * 1024 * 1024 });
 const BINARY_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".pdf", ".zip", ".gz", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov"]);
 const UNREAD_DIRS = new Set(["node_modules", "__pycache__"]);
@@ -57,37 +57,222 @@ function lineOf(text, needle) {
   return at < 0 ? 1 : String(text).slice(0, at).split("\n").length;
 }
 
-function scalar(raw) {
-  const s = String(raw == null ? "" : raw).trim();
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) return s.slice(1, -1).trim();
-  return s;
+function scalar(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// A bounded YAML subset for the two metadata documents. Keep the source line
+// with each mapping key, including separate entries in a sequence of maps.
+function readYaml(source, firstLine) {
+  const rows = source.split(/\r?\n/).map((text, index) => {
+    const indent = /^ */.exec(text)[0].length;
+    return { text, indent, content: text.slice(indent), line: firstLine + index };
+  });
+  const positions = new WeakMap();
+  const unknownFields = new Set();
+  let issue;
+  let unknownKeys = false;
+  let cursor = 0;
+  function flag(code, row) {
+    if (!issue || (code === "invalid-yaml" && issue.code !== code)) issue = { code, line: row.line };
+  }
+  function next() {
+    while (cursor < rows.length && (!rows[cursor].content || rows[cursor].content.startsWith("#"))) cursor++;
+    const row = rows[cursor];
+    if (row?.content.startsWith("\t")) flag("invalid-yaml", row);
+    return row;
+  }
+  function map() {
+    const value = Object.create(null);
+    positions.set(value, Object.create(null));
+    return value;
+  }
+  const isItem = content => /^-(?:\s|$)/.test(content);
+  const keyPattern = /^(?:(['"])([\w.-]+)\1|([\w.-]+))[ \t]*:(?:[ \t]+(.*)|$)/;
+  function withoutComment(text) {
+    const match = /(?:^|[ \t])#/.exec(text);
+    return (match ? text.slice(0, match.index) : text).trimEnd();
+  }
+  function plain(text, row) {
+    const clean = withoutComment(text);
+    if (/:(?:\s|$)/.test(clean)) flag("invalid-yaml", row);
+    return clean;
+  }
+  function flowList(text, row) {
+    const values = [];
+    positions.set(values, []);
+    // A flat sequence of ordinary quoted or plain scalars. A sticky cursor
+    // makes commas inside quotes unambiguous and never retries a failed token.
+    const item = /[ \t]*('(?:[^']|'')*'|"(?:[^"\\]|\\.)*"|[\w.-]+(?:[ \t]+[\w.-]+)*)[ \t]*([,\]])/y;
+    const trailingClose = /[ \t]*\]$/y;
+    item.lastIndex = 1;
+    while (item.lastIndex < text.length) {
+      const match = item.exec(text);
+      if (!match || !match[1].trim()) return undefined;
+      const value = inline(match[1].trim(), row);
+      if (value === undefined) return undefined;
+      values.push(value);
+      positions.get(values).push(row.line);
+      if (match[2] === "]") return item.lastIndex === text.length ? values : undefined;
+      trailingClose.lastIndex = item.lastIndex;
+      if (trailingClose.test(text)) return values;
+    }
+  }
+  function inline(text, row) {
+    if (text.startsWith("'")) {
+      const match = /^'((?:[^']|'')*)'(?:\s+#.*)?\s*$/.exec(text);
+      if (match) return match[1].replace(/''/g, "'");
+    } else if (text.startsWith('"')) {
+      const match = /^("(?:[^"\\]|\\.)*")(?:\s+#.*)?\s*$/.exec(text);
+      if (match) {
+        try { return JSON.parse(match[1]); } catch { /* YAML also has non-JSON escapes. */ }
+      }
+    } else {
+      const clean = withoutComment(text);
+      if (clean === "{}") return map();
+      if (clean === "[]") return [];
+      if (clean.startsWith("[") && clean.endsWith("]")) {
+        const list = flowList(clean, row);
+        if (list) return list;
+      }
+      if (!/^[&*!\[\]{}|>@`%]|^[?:-](?:\s|$)/.test(clean)) return plain(text, row);
+    }
+    flag("unverified-yaml", row);
+    return undefined;
+  }
+
+  function block(parentIndent, style, chomp) {
+    const parts = [];
+    let width;
+    while (cursor < rows.length) {
+      const row = rows[cursor];
+      if (row.content && row.indent <= parentIndent) break;
+      if (row.content && width === undefined) width = row.indent;
+      if (row.content && row.indent < width) { flag("invalid-yaml", row); break; }
+      parts.push(row.content ? row.text.slice(width) : "");
+      cursor++;
+    }
+    let value = "";
+    for (let n = 0; n < parts.length; n++) {
+      const here = parts[n], after = parts[n + 1];
+      value += here;
+      if (style === ">" && here && after && !/^\s/.test(here) && !/^\s/.test(after)) value += " ";
+      else if (style === ">" && here && after === "") continue;
+      else value += "\n";
+    }
+    if (chomp === "+") return value;
+    let end = value.length;
+    while (end && value[end - 1] === "\n") end--;
+    return value.slice(0, end) + (chomp !== "-" && end ? "\n" : "");
+  }
+
+  function skipChildren(indent) {
+    while (next() && rows[cursor].indent > indent) cursor++;
+  }
+  function readValue(raw, indent, row, depth, sequenceItem = false) {
+    const style = /^([|>])([+-]?)(?:\s+#.*)?\s*$/.exec(raw);
+    if (style) return block(indent, style[1], style[2]);
+    const child = next();
+    if (!raw || raw.startsWith("#")) {
+      if (!child || child.indent < indent || (child.indent === indent && (sequenceItem || !isItem(child.content)))) return "";
+      if (isItem(child.content) || keyPattern.test(child.content)) return collection(child.indent, depth + 1, child.indent === indent);
+      cursor++;
+      return readValue(child.content, indent, child, depth);
+    }
+    const initial = raw && !raw.startsWith("#") ? inline(raw, row) : "";
+    if (!child || child.indent <= indent) return initial;
+    if (typeof initial !== "string" || /^["']/.test(raw)) {
+      if (initial !== undefined) flag("unverified-yaml", child);
+      skipChildren(indent);
+      return initial;
+    }
+    const chunks = [initial];
+    let lastLine = row.line;
+    while (next() && rows[cursor].indent > indent) {
+      const continuation = rows[cursor++];
+      const value = plain(continuation.content, continuation);
+      const blankLines = continuation.line - lastLine - 1;
+      chunks.push(blankLines ? "\n".repeat(blankLines) : " ");
+      chunks.push(value);
+      lastLine = continuation.line;
+    }
+    return chunks.join("");
+  }
+  function property(target, content, indent, row, depth) {
+    const match = keyPattern.exec(content);
+    if (!match) {
+      if (depth === 0) unknownKeys = true;
+      // Quoted/complex keys and explicit collection syntax can be valid YAML.
+      flag(/^(?:['"?!&*%[{]|---(?:\s|$)|\.\.\.(?:\s|$))/.test(content) || /:(?:\s|$)/.test(content) ? "unverified-yaml" : "invalid-yaml", row);
+      skipChildren(indent);
+      return;
+    }
+    const key = match[2] || match[3];
+    const raw = match[4] || "";
+    if (Object.hasOwn(positions.get(target), key)) flag("invalid-yaml", row);
+    positions.get(target)[key] = row.line;
+    const value = readValue(raw, indent, row, depth);
+    if (value === undefined && depth === 0) unknownFields.add(key);
+    if (value !== undefined) target[key] = value;
+  }
+  function collection(indent, depth, indentationless = false) {
+    if (depth > 64) {
+      flag("unverified-yaml", rows[cursor]);
+      skipChildren(indent - 1);
+      return undefined;
+    }
+    const sequence = isItem(rows[cursor].content);
+    const target = sequence ? [] : map();
+    if (sequence) positions.set(target, []);
+    while (next() && rows[cursor].indent >= indent) {
+      if (indentationless && rows[cursor].indent === indent && !isItem(rows[cursor].content)) break;
+      const row = rows[cursor++];
+      if (row.indent !== indent || isItem(row.content) !== sequence) { flag("invalid-yaml", row); continue; }
+      if (!sequence) { property(target, row.content, indent, row, depth); continue; }
+      positions.get(target).push(row.line);
+      const tail = row.content.slice(1).trimStart();
+      if (keyPattern.test(tail)) {
+        const entry = map();
+        const keyIndent = indent + row.content.length - tail.length;
+        property(entry, tail, keyIndent, row, depth);
+        while (next() && rows[cursor].indent > indent) {
+          const field = rows[cursor++];
+          if (field.indent !== keyIndent) { flag("invalid-yaml", field); continue; }
+          property(entry, field.content, keyIndent, field, depth);
+        }
+        target.push(entry);
+      } else target.push(readValue(tail, indent, row, depth, true));
+    }
+    return target;
+  }
+  const root = next();
+  let value = root ? collection(root.indent, 0) : map();
+  if (next()) flag("invalid-yaml", rows[cursor]);
+  if (Array.isArray(value)) { flag("unverified-yaml", root); unknownKeys = true; value = map(); }
+  return { value, issue, unknownFields, unknownKeys, positions, lines: positions.get(value) };
 }
 
 function parseFrontmatter(raw) {
   const text = String(raw || "").replace(/^\uFEFF/, "");
-  if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) return { ok: false, error: "SKILL.md must begin with YAML frontmatter", fm: {}, body: text, front: "" };
-  const match = text.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?([\s\S]*)$/);
-  if (!match) return { ok: false, error: "YAML frontmatter is not closed with ---", fm: {}, body: text, front: "" };
-  const fm = {};
-  const lines = match[1].split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const source = lines[i];
-    if (!source.trim() || /^\s*#/.test(source)) continue;
-    const m = source.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!m) continue;
-    let value = m[2].trim();
-    if (/^[>|][+-]?$/.test(value)) {
-      const folded = value[0] === ">";
-      const block = [];
-      while (i + 1 < lines.length && (!lines[i + 1].trim() || /^\s+/.test(lines[i + 1]))) {
-        i++;
-        block.push(lines[i].replace(/^\s+/, ""));
-      }
-      value = folded ? block.join(" ").replace(/\s+/g, " ").trim() : block.join("\n").trim();
-    }
-    fm[m[1]] = scalar(value);
-  }
-  return { ok: true, fm, body: match[2], front: match[1] };
+  const opening = /^---\r?\n/.exec(text);
+  if (!opening) return { ok: false, error: "SKILL.md must begin with YAML frontmatter", fm: {}, body: text, front: "" };
+  const end = /^---[ \t]*\r?$/gm;
+  end.lastIndex = opening[0].length;
+  const closing = end.exec(text);
+  if (!closing) return { ok: false, error: "YAML frontmatter is not closed with ---", fm: {}, body: text, front: "" };
+  const front = text.slice(opening[0].length, closing.index).replace(/\r?\n$/, "");
+  const parsed = readYaml(front, 2);
+  return { ok: !parsed.issue, fm: parsed.value, lines: parsed.lines, issue: parsed.issue,
+    unknownFields: parsed.unknownFields, unknownKeys: parsed.unknownKeys,
+    body: text.slice(end.lastIndex).replace(/^\n/, ""), front };
+}
+
+function yamlFinding(issue, file) {
+  const invalid = issue.code === "invalid-yaml";
+  const subject = file === "SKILL.md" ? "frontmatter" : file;
+  return finding(file === "SKILL.md" ? "structure" : "codex", invalid ? "error" : "review", issue.code,
+    subject + (invalid ? " is not valid YAML" : " could not be verified"), file, issue.line,
+    invalid ? "Correct the YAML at the indicated line." : "Verify this YAML with a full parser.");
 }
 
 function isBinary(buffer, file) {
@@ -440,6 +625,179 @@ function referencesIn(file, bundleFolders) {
   return refs.values();
 }
 
+const SCRIPT_LANGUAGES = new Map([
+  [".sh", "shell"], [".bash", "shell"], [".zsh", "shell"], [".ps1", "powershell"],
+  [".js", "node"], [".cjs", "node"], [".mjs", "node"], [".ts", "node"], [".py", "python"],
+]);
+
+function personalPath(file) {
+  const ext = path.extname(file.rel).toLowerCase();
+  if (ext !== ".md" && file.rel !== "agents/openai.yaml" && !SCRIPT_LANGUAGES.has(ext)) return;
+  // Consume a whole web URL before looking for local paths in its segments.
+  const pattern = /\b(?:https?|ftp):\/\/[^\s<>"'`\])]+|(?<![\w./~\\-])(?:file:\/\/)?((?:\/Users\/|\/home\/|[a-z]:[\\/]Users[\\/])([\p{L}\p{N}._-]+)|\/root(?=$|[\/\s'"`),;:\]])|\x25USERPROFILE%)/giu;
+  for (const match of file.text.matchAll(pattern)) {
+    if (!match[1] || /^(?:username|yourname|your-name|your_name)$/i.test(match[2])) continue;
+    if (/^\/Users\/Shared$/i.test(match[1])) continue;
+    return { text: match[1], line: file.text.slice(0, match.index).split("\n").length };
+  }
+}
+
+function* commandSources(file) {
+  const ext = path.extname(file.rel).toLowerCase();
+  const language = SCRIPT_LANGUAGES.get(ext);
+  if (language) {
+    yield { language, text: file.text, line: 1 };
+  } else if (ext === ".md") {
+    let fence, block, start;
+    const lines = file.text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i]);
+      if (!fence && delimiter) {
+        fence = delimiter[1];
+        start = i + 2;
+        const info = delimiter[2].trim().split(/\s+/)[0].toLowerCase();
+        const language = /^(?:bash|sh|shell|zsh|fish|console)$/.test(info) ? "shell"
+          : /^(?:powershell|pwsh|ps1)$/.test(info) ? "powershell" : "";
+        block = language && { language, lines: [] };
+      } else if (fence && delimiter && delimiter[1].startsWith(fence) && !delimiter[2].trim()) {
+        if (block) yield { language: block.language, text: block.lines.join("\n"), line: start };
+        fence = null;
+      } else if (fence && block) block.lines.push(lines[i]);
+    }
+    if (fence && block) yield { language: block.language, text: block.lines.join("\n"), line: start };
+  }
+}
+
+// Keep line breaks and offsets when removing strings and comments. The module marker
+// lets the import checks distinguish built-in process functions from unrelated APIs.
+function maskedCode(text, language) {
+  const ignored = language === "python"
+    ? /#[^\n]*|'''[\s\S]*?(?:'''|$)|"""[\s\S]*?(?:"""|$)|"(?:\\[\s\S]|[^"\\\n])*"?|'(?:\\[\s\S]|[^'\\\n])*'?/g
+    : /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\[\s\S]|[^"\\\n])*"?|'(?:\\[\s\S]|[^'\\\n])*'?|`(?:\\[\s\S]|[^`\\])*`?/g;
+  return text.replace(ignored, token => {
+    if (/^(['"])(?:node:)?child_process\1$/.test(token)) return "@builtin".padEnd(token.length);
+    if (/^(['"])recursive\1$/.test(token)) return " recursive ";
+    return token.replace(/[^\n]/g, " ");
+  });
+}
+
+function processBindings(code) {
+  const calls = new Set(), modules = new Set(["child_process"]);
+  const builtins = /^(?:exec(?:Sync|File(?:Sync)?)?|spawn(?:Sync)?|fork)$/;
+  for (const match of code.matchAll(/(?:\bimport\s+\{([^{}]*)\}\s+from\s+@builtin|\{([^{}]*)\}\s*=\s*require\s*\(\s*@builtin\s*\))/g)) {
+    for (const entry of (match[1] || match[2] || "").split(",")) {
+      const names = entry.trim().split(/\s*(?::|\bas\b)\s*/);
+      if (builtins.test(names[0])) calls.add(names[1] || names[0]);
+    }
+  }
+  for (const match of code.matchAll(/(?:\bimport\s+(?:\*\s+as\s+)?([\w$]+)\s+from\s+@builtin|\b([\w$]+)\s*=\s*require\s*\(\s*@builtin\s*\))/g)) {
+    modules.add(match[1] || match[2]);
+  }
+  for (const match of code.matchAll(/\b([\w$]+)(?:\s*\.\s*([\w$]+))?\s*\(/g)) {
+    if (match[2] ? modules.has(match[1]) && builtins.test(match[2]) : calls.has(match[1])) return match;
+  }
+  return /\brequire\s*\(\s*@builtin\s*\)\s*\.\s*(?:exec(?:Sync|File(?:Sync)?)?|spawn(?:Sync)?|fork)\s*\(/.exec(code);
+}
+
+function recursiveFileRemoval(code) {
+  const parentheses = [];
+  let currentRemoval;
+  for (const match of code.matchAll(/\bfs\s*\.\s*rm(?:Sync)?\s*\(|\brecursive\s*:\s*true\b|[()]/g)) {
+    if (match[0].endsWith("(")) {
+      parentheses.push(currentRemoval);
+      if (match[0] !== "(") currentRemoval = match;
+    } else if (match[0] === ")") currentRemoval = parentheses.pop();
+    else if (currentRemoval) return currentRemoval;
+  }
+}
+
+function inspectProgram(source, record) {
+  const code = maskedCode(source.text, source.language);
+  function add(rule, match) {
+    if (!match) return;
+    const evidence = source.text.slice(match.index, match.index + match[0].length);
+    record(rule, evidence, source.line + code.slice(0, match.index).split("\n").length - 1);
+  }
+  if (source.language === "python") {
+    add("destructive", /\bshutil\s*\.\s*rmtree\s*\(/.exec(code));
+    add("execution", /\b(?:subprocess\s*\.\s*(?:run|Popen|call|check_call|check_output|getoutput|getstatusoutput)|os\s*\.\s*system|eval)\s*\(/.exec(code));
+    add("network", /\b(?:requests\s*\.\s*(?:get|post|put|delete|patch|head|options|request)|urllib\s*\.\s*request\s*\.\s*(?:urlopen|urlretrieve))\s*\(/.exec(code));
+  } else {
+    add("destructive", recursiveFileRemoval(code));
+    add("execution", processBindings(code) || /\beval\s*\(/.exec(code));
+    add("network", /\b(?:fetch|https?\s*\.\s*(?:get|request))\s*\(/.exec(code));
+  }
+}
+
+function inspectShell(source, record) {
+  // Split commands at unquoted operators. Quoted command names and flags are words.
+  const tokens = /\\\r?\n|(?:[^\s;&|()'"\\#]|\\[^\n]|"(?:\\.|[^"\\])*"?|'[^']*'?)+|#[^\n]*|&&|\|\||[;&|()\n]/g;
+  let words = [], pipeFromDownload = false, line = source.line, commandLine = line;
+  function endCommand(separator) {
+    let start = 0;
+    while (start < words.length) {
+      const word = words[start].value;
+      if (word === "sudo") {
+        start++;
+        while (start < words.length && words[start].value.startsWith("-")) {
+          const flag = words[start++].value;
+          if (/^-(?:u|g|h|p|C|T)$/.test(flag)) start++;
+        }
+      } else if (/^(?:if|elif|then|else|do|command|env|\$)$/.test(word) || /^\w+=/.test(word)) start++;
+      else break;
+    }
+    if (start >= words.length) {
+      if (separator !== "\n") pipeFromDownload = false;
+    } else {
+      const name = words[start].value.split(/[\\/]/).pop().toLowerCase();
+      const params = words.slice(start + 1);
+      const args = params.map(w => w.value);
+      const delimiter = args.indexOf("--");
+      const options = delimiter < 0 ? args : args.slice(0, delimiter);
+      const flags = options.filter(a => /^-[^-]/.test(a)).join("");
+      const helpOnly = args.length === 1 && ["--help", "--version", "-V"].includes(args[0]);
+      const download = ["curl", "wget", "invoke-webrequest"].includes(name) && !helpOnly;
+      const installs = (name === "npm" && /^(?:install|i|ci)$/.test(args.find(a => !a.startsWith("-")))) ||
+        (name === "npx" && args.some(a => !a.startsWith("-"))) ||
+        (/^pip(?:3(?:\.\d+)?)?$/.test(name) && args.includes("install")) ||
+        (/^python(?:3(?:\.\d+)?)?$/.test(name) && args.join(" ").includes("-m pip install"));
+      if (download || installs) record("network", words[start].value, commandLine);
+      if (pipeFromDownload && /^(?:sh|bash|zsh|dash|ksh|pwsh|powershell)$/.test(name)) record("execution", words[start].value, commandLine);
+      if ((name === "rm" && (/[rR]/.test(flags) || options.includes("--recursive")) && (flags.includes("f") || options.includes("--force"))) ||
+          (name === "find" && args.includes("-delete")) ||
+          (name === "git" && ((args[0] === "reset" && args.includes("--hard")) || (args[0] === "push" && args.includes("--force")))) ||
+          (name === "dd" && args.some(a => a.startsWith("if="))) ||
+          (name === "remove-item" && params.some(w => /^-recurse$/i.test(w.raw)))) {
+        record("destructive", words[start].value, commandLine);
+      }
+      pipeFromDownload = separator === "|" && download;
+    }
+    words = [];
+  }
+  for (const match of source.text.matchAll(tokens)) {
+    const token = match[0];
+    if (/^(?:&&|\|\||[;&|()\n])$/.test(token)) endCommand(token);
+    else if (!token.startsWith("#") && !/^\\\r?\n$/.test(token)) {
+      if (!words.length) commandLine = line;
+      words.push({ raw: token, value: token.replace(/(['"])(.*?)\1/g, "$2") });
+    }
+    line += token.split("\n").length - 1;
+  }
+  endCommand("");
+}
+
+function contentSafety(file) {
+  const found = {};
+  function record(rule, text, line) {
+    if (!found[rule]) found[rule] = { text, line };
+  }
+  for (const source of commandSources(file)) {
+    if (source.language === "shell" || source.language === "powershell") inspectShell(source, record);
+    else inspectProgram(source, record);
+  }
+  return found;
+}
+
 function referenceInspector(skillDir) {
   // Cache only directory entries. Each segment must match case, even on a volume
   // where asking the OS for a wrong-case path would succeed.
@@ -500,6 +858,42 @@ function referenceInspector(skillDir) {
   return { bundleFolders, inspect };
 }
 
+const SHARED_FIELDS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
+const CLAUDE_FIELDS = new Set([
+  "when_to_use", "argument-hint", "arguments", "disable-model-invocation", "user-invocable",
+  "disallowed-tools", "model", "effort", "context", "agent", "background", "hooks", "paths", "shell",
+]);
+
+function checkFrontmatterFields(parsed, description, findings) {
+  const { fm, lines } = parsed;
+  if (Object.hasOwn(lines, "allowed-tools")) {
+    findings.push(finding("portability", "review", "allowed-tools-extension",
+      "The Agent Skills specification marks allowed-tools as experimental", "SKILL.md", lines["allowed-tools"],
+      "Document the dependency and provide a portable fallback."));
+  }
+  const extraFields = Object.keys(lines).filter(key => !SHARED_FIELDS.has(key)).sort((a, b) => lines[a] - lines[b]);
+  if (extraFields.length) {
+    const labels = extraFields.map(key => key + (CLAUDE_FIELDS.has(key) ? " (Claude Code)" : " (product unconfirmed)"));
+    findings.push(finding("portability", "review", "extra-frontmatter-fields",
+      "Fields outside the Agent Skills specification: " + labels.join(", "), "SKILL.md", lines[extraFields[0]],
+      "Document which product reads these fields and how to use the skill on other agents."));
+  }
+  if (typeof fm.compatibility === "string" && Array.from(fm.compatibility).length > 500) {
+    findings.push(finding("structure", "error", "compatibility-too-long", "Compatibility exceeds the 500-character limit",
+      "SKILL.md", lines.compatibility, "Shorten compatibility to 500 characters or fewer."));
+  }
+  if (typeof fm.name === "string" && /[<>]/.test(fm.name)) {
+    findings.push(finding("claude", "review", "claude-name-angle-bracket",
+      "Claude uploads reject angle brackets in the name. Claude Code rejects this frontmatter name. The skill can still load under a valid folder name.",
+      "SKILL.md", lines.name, "Use a lowercase hyphenated name matching the skill folder."));
+  }
+  if (/[<>]/.test(description)) {
+    findings.push(finding("claude", "review", "claude-description-angle-bracket",
+      "Claude uploads reject angle brackets in the description. Claude Code accepts them and displays &lt; and &gt;.",
+      "SKILL.md", lines.description, "Use square brackets or plain text in the description."));
+  }
+}
+
 function auditCandidate(candidate, limits) {
   const { root, rootReal, dir, dirReal, folder } = candidate;
   const collected = collectFiles(dirReal, rootReal, limits, candidate.discoveryDepth);
@@ -511,15 +905,17 @@ function auditCandidate(candidate, limits) {
   if (skillFile) parsed = parseFrontmatter(skillFile.text);
   const oversizedSkill = collected.files.some(f => f.rel === "SKILL.md" && f.skipped);
   if (!skillFile && !oversizedSkill) findings.push(finding("structure", "error", "missing-skill-md", "The skill directory has no readable SKILL.md", "SKILL.md", 1, "Add a SKILL.md with valid YAML frontmatter."));
-  else if (skillFile && !parsed.ok) findings.push(finding("structure", "error", "malformed-frontmatter", parsed.error, "SKILL.md", 1, "Repair the opening YAML frontmatter and its closing delimiter."));
+  else if (skillFile && !parsed.ok && !parsed.issue) findings.push(finding("structure", "error", "malformed-frontmatter", parsed.error, "SKILL.md", 1, "Repair the opening YAML frontmatter and its closing delimiter."));
+
+  if (parsed.issue) findings.push(yamlFinding(parsed.issue, "SKILL.md"));
 
   const fm = parsed.fm || {};
   const name = scalar(fm.name) || folder;
   const description = scalar(fm.description);
   const raw = skillFile ? skillFile.text : "";
-  if (parsed.ok) {
-    if (!scalar(fm.name)) findings.push(finding("structure", "error", "missing-name", "Frontmatter is missing name", "SKILL.md", 2, "Add a name matching the skill folder."));
-    if (!description) findings.push(finding("structure", "error", "missing-description", "Frontmatter is missing description", "SKILL.md", 2, "Describe what the skill does and when it should trigger."));
+  if (parsed.ok || parsed.issue?.code === "unverified-yaml") {
+    if (!scalar(fm.name) && !parsed.unknownKeys && !parsed.unknownFields.has("name")) findings.push(finding("structure", "error", "missing-name", "Frontmatter is missing name", "SKILL.md", 2, "Add a name matching the skill folder."));
+    if (!description && !parsed.unknownKeys && !parsed.unknownFields.has("description")) findings.push(finding("structure", "error", "missing-description", "Frontmatter is missing description", "SKILL.md", 2, "Describe what the skill does and when it should trigger."));
     if (name.length > 64) findings.push(finding("structure", "error", "name-too-long", "Skill name exceeds 64 characters", "SKILL.md", lineOf(raw, "name:"), "Shorten the skill and folder name to 64 characters or fewer."));
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) findings.push(finding("structure", "error", "invalid-name", "Name must use lowercase letters, digits, and single hyphens", "SKILL.md", lineOf(raw, "name:"), "Rename the skill and folder with portable hyphen-case."));
     if (name !== folder) findings.push(finding("structure", "error", "folder-name-mismatch", `Frontmatter name '${name}' does not match folder '${folder}'`, "SKILL.md", lineOf(raw, "name:"), "Make the frontmatter name and parent folder identical."));
@@ -532,8 +928,8 @@ function auditCandidate(candidate, limits) {
     if (description && !/(?:\bwhen\b|\bwhenever\b|\basks?\b|\brequested?\b|\btrigger|\buse for\b|\buse this\b)/i.test(description)) findings.push(finding("triggers", "review", "unclear-trigger", "Description does not clearly say when this skill should trigger", "SKILL.md", lineOf(raw, "description:"), "Add concrete user phrases, tasks, file types, or situations."));
     if (/^(?:i|you|we)\b/i.test(description)) findings.push(finding("triggers", "review", "description-voice", "Description should be written as a neutral third-person capability", "SKILL.md", lineOf(raw, "description:"), "Rewrite the description in concise third-person language."));
 
-    if (/\b(?:anthropic|claude)\b/i.test(name)) findings.push(finding("claude", "error", "claude-reserved-name", "Claude reserves 'anthropic' and 'claude' in custom skill names", "SKILL.md", lineOf(raw, "name:"), "Choose a model-neutral name."));
-    if (/^allowed-tools\s*:/m.test(parsed.front)) findings.push(finding("portability", "review", "allowed-tools-extension", "allowed-tools is a model-specific frontmatter extension", "SKILL.md", lineOf(raw, "allowed-tools:"), "Document the dependency and provide a portable fallback."));
+    if (/(?:^|-)(?:anthropic|claude)(?:-|$)/i.test(name)) findings.push(finding("claude", "error", "claude-reserved-name", "Claude reserves 'anthropic' and 'claude' in custom skill names", "SKILL.md", lineOf(raw, "name:"), "Choose a model-neutral name."));
+    checkFrontmatterFields(parsed, description, findings);
   }
 
   const inspector = referenceInspector(dirReal);
@@ -551,25 +947,41 @@ function auditCandidate(candidate, limits) {
     if (file.rel.startsWith("references/") && file.rel.split("/").length > 2) findings.push(finding("structure", "review", "deep-reference", `Reference is nested more than one level: ${file.rel}`, file.rel, 1, "Keep references shallow so agents can discover them reliably."));
     if (file.rel.startsWith("references/") && file.text.split(/\r?\n/).length > 100 && !/^#{1,3}\s+(?:contents|table of contents)\b/im.test(file.text)) findings.push(finding("structure", "review", "reference-no-toc", `Long reference has no contents section: ${file.rel}`, file.rel, 1, "Add a short table of contents near the top."));
 
-    const personal = file.text.match(/(?:\/Users\/[A-Za-z0-9._-]+|~\/Desktop\/|Desktop\/Workspace\/)/);
-    if (personal) findings.push(finding("portability", "review", "personal-path", `Machine- or workspace-specific path found: ${personal[0]}`, file.rel, lineOf(file.text, personal[0]), "Parameterize the path or label the skill as workspace-specific."));
+    const personal = personalPath(file);
+    if (personal) findings.push(finding("portability", "review", "personal-path", `Machine- or workspace-specific path found: ${personal.text}`, file.rel, personal.line, "Parameterize the path or label the skill as workspace-specific."));
     const modelTool = file.text.match(/\b(?:AskUserQuestion|request_user_input|apply_patch|PreToolUse|Claude Code|Codex CLI)\b/);
     if (modelTool && file.rel !== "scripts/audit-skills.js") findings.push(finding("portability", "review", "model-specific-tool", `Model-specific capability found: ${modelTool[0]}`, file.rel, lineOf(file.text, modelTool[0]), "Document the target agent and offer an equivalent fallback where practical."));
-    const destructive = file.text.match(/(?:^|[;&|]\s*)(?:rm\s+-rf|git\s+reset\s+--hard|git\s+push\s+--force|dd\s+if=)/m);
-    if (destructive) findings.push(finding("safety", "review", "destructive-command", "Potentially destructive command appears in skill content", file.rel, lineOf(file.text, destructive[0]), "Confirm it is defensive documentation; otherwise remove it or require explicit human approval."));
-    const codeExec = file.text.match(/\b(?:child_process\.(?:exec|spawn)|subprocess\.(?:run|Popen)|os\.system\(|eval\s*\()/);
-    if (codeExec) findings.push(finding("safety", "review", "code-execution", `Bundled code contains an execution primitive: ${codeExec[0]}`, file.rel, lineOf(file.text, codeExec[0]), "Audit the call path and inputs manually; static inspection cannot prove it safe."));
-    const network = file.text.match(/\b(?:curl\s+https?:|wget\s+https?:|fetch\s*\(|requests\.(?:get|post)\s*\()/);
-    if (network) findings.push(finding("safety", "review", "network-access", `Potential network access found: ${network[0]}`, file.rel, lineOf(file.text, network[0]), "Verify destinations, data exposure, and user approval requirements."));
+    const { destructive, execution, network } = contentSafety(file);
+    if (destructive) findings.push(finding("safety", "review", "destructive-command", "Potentially destructive command appears in skill content", file.rel, destructive.line, "Confirm it is defensive documentation; otherwise remove it or require explicit human approval."));
+    if (execution) findings.push(finding("safety", "review", "code-execution", `Bundled code contains an execution primitive: ${execution.text}`, file.rel, execution.line, "Audit the call path and inputs manually; static inspection cannot prove it safe."));
+    if (network) findings.push(finding("safety", "review", "network-access", `Potential network access found: ${network.text}`, file.rel, network.line, "Verify destinations, data exposure, and user approval requirements."));
   }
 
   const openai = collected.files.find((f) => f.rel === "agents/openai.yaml" && !f.binary && !f.skipped);
   if (openai) {
-    if (!/^interface:\s*$/m.test(openai.text)) findings.push(finding("codex", "review", "openai-yaml-interface", "agents/openai.yaml has no interface block", openai.rel, 1, "Add interface metadata or remove the unused file."));
-    if (/^\s*default_prompt:\s*(.+)$/m.test(openai.text) && !openai.text.includes(`$${name}`)) findings.push(finding("codex", "review", "openai-default-prompt", "Codex default_prompt does not explicitly mention this skill", openai.rel, lineOf(openai.text, "default_prompt:"), `Mention $${name} in the default prompt.`));
-    if (/^dependencies:\s*$/m.test(openai.text)) findings.push(finding("portability", "review", "declared-dependency", "Codex-specific tool dependencies are declared in agents/openai.yaml", openai.rel, lineOf(openai.text, "dependencies:"), "Verify every dependency is available and document a fallback for other agents."));
-    const unsupported = openai.text.match(/^\s*-?\s*type:\s*["']?([^"'\s]+)["']?\s*$/m);
-    if (unsupported && unsupported[1] !== "mcp") findings.push(finding("codex", "review", "unsupported-dependency-type", `Unknown Codex dependency type: ${unsupported[1]}`, openai.rel, lineOf(openai.text, unsupported[0]), "Use a currently supported dependency type or remove the declaration."));
+    const config = readYaml(openai.text, 1);
+    if (config.issue) findings.push(yamlFinding(config.issue, openai.rel));
+    const doc = config.value;
+    if (!config.issue) {
+      const isMap = value => value !== null && typeof value === "object" && !Array.isArray(value);
+      if (!isMap(doc.interface) && !isMap(doc.policy) && !isMap(doc.dependencies)) findings.push(finding("codex", "review", "openai-yaml-interface", "agents/openai.yaml has no interface block", openai.rel, 1, "Add interface metadata or remove the unused file."));
+    }
+    // Older configs also put the prompt or dependency list directly at the top.
+    const promptMap = doc.interface?.default_prompt === undefined ? doc : doc.interface;
+    if (typeof promptMap.default_prompt === "string" && promptMap.default_prompt && !promptMap.default_prompt.includes(`$${name}`)) findings.push(finding("codex", "review", "openai-default-prompt", "Codex default_prompt does not explicitly mention this skill", openai.rel, config.positions.get(promptMap).default_prompt, `Mention $${name} in the default prompt.`));
+    if (Object.hasOwn(doc, "dependencies")) findings.push(finding("portability", "review", "declared-dependency", "Codex-specific tool dependencies are declared in agents/openai.yaml", openai.rel, config.lines.dependencies, "Verify every dependency is available and document a fallback for other agents."));
+    const tools = Array.isArray(doc.dependencies) ? doc.dependencies : doc.dependencies?.tools;
+    if (Array.isArray(tools)) {
+      for (const [index, entry] of tools.entries()) {
+        const type = entry?.type;
+        if (type === "mcp") continue;
+        const entryLine = config.positions.get(tools)[index];
+        const fieldLines = config.positions.get(entry);
+        if (type === undefined && fieldLines && Object.hasOwn(fieldLines, "type")) continue; // Already reported as unverified YAML.
+        const label = !type ? "(missing)" : typeof type === "string" ? type : "(non-scalar)";
+        findings.push(finding("codex", "review", "unsupported-dependency-type", `Unknown Codex dependency type: ${label}`, openai.rel, fieldLines?.type || entryLine, "Use a currently supported dependency type or remove the declaration."));
+      }
+    }
   }
 
   const axes = {};
@@ -590,15 +1002,14 @@ function auditCandidate(candidate, limits) {
 
 function finalizeStatus(skill) {
   const commonFail = skill.axes.structure === "fail";
-  const warnings = skill.findings.filter((f) => f.severity !== "error");
   const workspace = skill.findings.some((f) => f.code === "personal-path");
-  const conflict = skill.findings.some((f) => ["duplicate-name", "trigger-overlap"].includes(f.code));
   const safetyReview = skill.axes.safety !== "pass";
   if (commonFail) { skill.status = "Broken"; skill.statusKey = "broken"; }
+  else if (safetyReview) { skill.status = "Needs review"; skill.statusKey = "review"; }
   else if (workspace) { skill.status = "Workspace-specific"; skill.statusKey = "workspace"; }
   else if (skill.axes.claude === "pass" && skill.axes.codex !== "pass") { skill.status = "Claude-ready"; skill.statusKey = "claude"; }
   else if (skill.axes.codex === "pass" && skill.axes.claude !== "pass") { skill.status = "Codex-ready"; skill.statusKey = "codex"; }
-  else if (warnings.length || conflict || safetyReview) { skill.status = "Needs review"; skill.statusKey = "review"; }
+  else if (skill.findings.length) { skill.status = "Needs review"; skill.statusKey = "review"; }
   else { skill.status = "Universal"; skill.statusKey = "universal"; }
   const rank = { error: 0, review: 1, info: 2 };
   skill.findings.sort((a, b) => (rank[a.severity] - rank[b.severity]) || AXES.indexOf(a.axis) - AXES.indexOf(b.axis) || comparePath(a.file, b.file) || a.line - b.line);
@@ -881,11 +1292,40 @@ function parseCli(argv) {
   return { roots, json };
 }
 
+// Escape individual output lines before adding the renderer's own line breaks.
+function terminalText(text) {
+  return text.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u206f]/g,
+    ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
+function printFindings(findings) {
+  const groups = new Map();
+  for (const item of findings) {
+    if (!groups.has(item.code)) groups.set(item.code, { first: item, count: 0, suggestions: new Set() });
+    const group = groups.get(item.code);
+    group.count++;
+    group.suggestions.add(item.suggestion);
+  }
+  const ordered = [...groups.values()].sort((a, b) =>
+    Number(b.first.axis === "safety") - Number(a.first.axis === "safety"));
+  let omitted = 0;
+  for (const [index, { first, count, suggestions }] of ordered.entries()) {
+    if (index >= 8 && first.axis !== "safety") {
+      omitted += count;
+      continue;
+    }
+    const level = first.severity === "error" ? "ERROR" : "REVIEW";
+    const repeat = count > 1 ? ` ×${count}` : "";
+    console.log(terminalText(`  ${level} ${first.axis} · ${first.file}:${first.line} · ${first.message}${repeat} · ${[...suggestions].join(" ")}`));
+  }
+  if (omitted) console.log(`  … ${omitted} ${omitted === 1 ? "finding" : "findings"} not shown`);
+}
+
 function printHuman(report, explicitRoots) {
   for (const root of report.roots) {
     if (explicitRoots || root.state !== "missing") {
-      console.log(`${root.label} (${root.path}) — ${root.state}`);
-      if (root.notSearched) console.log(`  not searched: ${root.notSearched.join(", ")}`);
+      console.log(terminalText(`${root.label} (${root.path}) — ${root.state}`));
+      if (root.notSearched) console.log(terminalText(`  not searched: ${root.notSearched.join(", ")}`));
     }
   }
   const s = report.summary.statuses;
@@ -893,9 +1333,9 @@ function printHuman(report, explicitRoots) {
   console.log(`Universal ${s.universal} · Claude-ready ${s.claude} · Codex-ready ${s.codex} · Workspace-specific ${s.workspace} · Needs review ${s.review} · Broken ${s.broken}`);
   console.log(report.disclaimer);
   for (const skill of report.skills) {
-    console.log(`\n${skill.status.padEnd(18)} ${skill.name}  [${skill.sources.map(source => source.isLink ? source.label + " (link)" : source.label).join(", ")}]`);
-    for (const item of skill.findings.slice(0, 8)) console.log(`  ${item.severity === "error" ? "ERROR" : "REVIEW"} ${item.axis} · ${item.file}:${item.line} · ${item.message}`);
-    if (skill.findings.length > 8) console.log(`  … ${skill.findings.length - 8} more findings`);
+    console.log("");
+    console.log(terminalText(`${skill.status.padEnd(18)} ${skill.name}  [${skill.sources.map(source => source.isLink ? source.label + " (link)" : source.label).join(", ")}]`));
+    printFindings(skill.findings);
   }
 }
 
@@ -915,7 +1355,7 @@ if (require.main === module) {
     const rootError = cli.roots.length > 0 && report.roots.some(root => root.state !== "read");
     process.exitCode = rootError ? 1 : report.summary.statuses.broken ? 2 : 0;
   } catch (error) {
-    console.error(`Skill Doctor failed: ${error.message}`);
+    console.error(terminalText(`Skill Doctor failed: ${error.message}`));
     process.exitCode = 1;
   }
 }

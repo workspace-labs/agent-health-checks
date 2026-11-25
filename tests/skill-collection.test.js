@@ -45,7 +45,7 @@ test("330 bundled files cannot hide SKILL.md or a real reference past the limit"
 
 for (const limits of [{ maxFiles: 0 }, { maxTotalBytes: 0 }]) {
   test("both metadata files are examined even with " + JSON.stringify(limits), t => {
-    const root = collection(t, { "agents/openai.yaml": "policy: {}\n", "text/a": "a", "text/b": "b" });
+    const root = collection(t, { "agents/openai.yaml": "unused: true\n", "text/a": "a", "text/b": "b" });
     const limited = scan(root, limits);
     assert.equal(limited.fileCount, 2);
     assert.deepEqual(messages(limited, "openai-yaml-interface"), ["agents/openai.yaml has no interface block"]);
@@ -112,7 +112,7 @@ for (const directory of ["dist", "build", "vendor", "scripts"]) {
     const skill = scan(root);
     assert.equal(skill.status, "Needs review");
     assert.deepEqual(skill.findings.map(f => [f.code, f.file]).sort(), [
-      ["destructive-command", relative], ["network-access", relative],
+      ["code-execution", relative], ["destructive-command", relative], ["network-access", relative],
     ]);
     fs.writeFileSync(path.join(root, "paper-trail", relative), "echo hello\n");
     assert.equal(scan(root).status, "Universal");

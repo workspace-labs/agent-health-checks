@@ -55,6 +55,25 @@ A missing file can produce `broken-reference` only when `SKILL.md` or `agents/op
 
 The existing `symlink-root-escape` finding now uses the structure axis and the message `Refused skill symlink escaping <root>. Target <target> was not checked.` Its severity is review. Refused install links are excluded from duplicate-name checks.
 
+### Skill findings and terminal presentation in 0.7.0
+
+The terminal groups findings by code and prints the location and message of the first example, the number of occurrences when repeated, and the suggested next step. Safety groups appear first and are always visible. Up to eight groups are shown unless more are needed for safety. The omission count counts individual findings in hidden groups. JSON retains every original finding.
+
+Both terminal reports display embedded control characters, line separators and directional formatting marks as visible Unicode escapes. The JSON reports preserve their original strings.
+
+| Code | Axis and severity | Exact message |
+|---|---|---|
+| `invalid-yaml` | structure error in skill frontmatter | `frontmatter is not valid YAML` |
+| `unverified-yaml` | structure review in skill frontmatter | `frontmatter could not be verified` |
+| `invalid-yaml` | codex error | `agents/openai.yaml is not valid YAML` |
+| `unverified-yaml` | codex review | `agents/openai.yaml could not be verified` |
+| `extra-frontmatter-fields` | portability review | `Fields outside the Agent Skills specification: <field> (<product>)` |
+| `compatibility-too-long` | structure error | `Compatibility exceeds the 500-character limit` |
+| `claude-description-angle-bracket` | Claude review | `Claude uploads reject angle brackets in the description. Claude Code accepts them and displays &lt; and &gt;.` |
+| `claude-name-angle-bracket` | Claude review | `Claude uploads reject angle brackets in the name. Claude Code rejects this frontmatter name. The skill can still load under a valid folder name.` |
+
+For multiple extra fields, the message lists each field and product separated by a comma and a space. The product labels are `Claude Code` and `product unconfirmed`. The existing `allowed-tools-extension` message now reads `The Agent Skills specification marks allowed-tools as experimental`.
+
 ## Project report
 
 | Top-level keys | Value |

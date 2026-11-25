@@ -82,10 +82,10 @@ test("skills JSON preserves finding identity across identical installations", (t
 test("skills report emits all six status keys, labels, axis grades and finding severities", (t) => {
   const root = tempDirectory(t);
   install(root, "color-guide", "Use when drafting a watercolor pigment catalogue.");
-  install(root, "map-drawer", "Use when tracing elevation contours across valleys.", "Read ~/Desktop/maps.");
+  install(root, "map-drawer", "Use when tracing elevation contours across valleys.", "Read /Users/alice/maps.");
   const schedules = install(root, "schedule", "Use when calculating calendar availability for appointments.");
   fs.mkdirSync(path.join(schedules, "agents"));
-  fs.writeFileSync(path.join(schedules, "agents", "openai.yaml"), "policy: {}\n");
+  fs.writeFileSync(path.join(schedules, "agents", "openai.yaml"), "unused: true\n");
   install(root, "claude-helper", "Use when examining atmospheric pressure records.");
   install(root, "notes", "Use for notes.");
   fs.mkdirSync(path.join(root, "unfinished"));

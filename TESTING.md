@@ -319,3 +319,50 @@ On 2026-10-09, both checkers were run on real material, not test fixtures:
   but there is no history of when or how it was first reviewed.
 - **Second-agent review covered only cards 10–12.** Cards 1–9 were tested and accepted
   by a person, without a second agent reading the code.
+
+### Skill rules and terminal reports (0.7.0, 2026-11-26)
+
+The comparison used the published v0.6.0 tree at `a1154f1`. The new tests ran against that baseline first. The fixtures exercise the verdict with and without safety evidence, accepted and rejected YAML, agent field semantics, executable spellings and look-alikes, personal and portable paths, output grouping and literal JSON evidence. All sample commands are inspected as text. Run the four focused files from the repository root.
+
+```sh
+node --test tests/skill-yaml.test.js tests/skill-field-rules.test.js tests/skill-command-and-path-rules.test.js tests/skill-verdict-and-terminal.test.js
+node --test --test-name-pattern="one MiB" tests/skill-yaml.test.js
+node skills/audit-agent-skills/scripts/audit-skills.js --root skills
+node skills/audit-agent-skills/scripts/audit-skills.js --json
+```
+
+**Local results.** On macOS 27.2.1, the four focused files passed 156/156. Against a temporary copy of the tagged 0.6.0 scripts, those same files gave 129 failures and 27 passes. The full suite ran with each exact runtime’s `node --test --test-reporter=tap`. The final column gives the test runner’s elapsed time for the one-MiB case, including its fixture setup and checks.
+
+| Node | Passed | Failed | Skipped | One-MiB case |
+|---|---:|---:|---:|---:|
+| 20.20.2 | 559 | 0 | 0 | 138.5 ms |
+| 22.23.1 | 559 | 0 | 0 | 74.8 ms |
+| 24.22.1 | 559 | 0 | 0 | 70.1 ms |
+| 26.13.1 | 559 | 0 | 0 | 81.4 ms |
+
+**Terminal evidence on 0.6.0 (OUT-3).** Benign markers were used at the four input locations from the July proof. Neither a multiline Markdown link nor its carriage-return variant printed the trailing marker. An ignored multiline source comment also stayed outside the project report. A direction mark in a project symlink name reached the terminal unchanged. Separate checks found unescaped audited text in both terminal renderers. The regression suite verifies visible escapes in skill and project names, paths and quoted references while retaining their exact values in JSON. The historical cursor-control sequence was not replayed.
+
+**Read-only toolbox comparison.** Both runs used the default installations on the same Mac. All 84 skill digests matched, and both runs had 56 identical mirrors and exit code 2.
+
+| Version | Findings | Universal | Claude-ready | Codex-ready | Workspace-specific | Needs review | Broken |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0.6.0 | 367 | 23 | 1 | 0 | 3 | 56 | 1 |
+| 0.7.0 | 373 | 21 | 0 | 0 | 0 | 61 | 2 |
+
+| Skill | Change | Evidence |
+|---|---|---|
+| animate | Universal → Needs review | Package commands in two shell blocks. |
+| find-skills | Universal → Needs review | A shell block invokes npx. |
+| mcp-builder | Workspace-specific → Universal | Its two home-relative path findings cleared. |
+| peer-review | Workspace-specific → Needs review | The personal-path finding cleared. Unverified references remain. |
+| playwright | Claude-ready → Needs review | Shell package commands in its instructions and script take priority over the Codex default-prompt note. |
+| trade-off-analysis | Universal → Broken | SKILL.md line 3 contains colon-space in a plain YAML description. This is the only new Broken skill. |
+| ui-ux-pro-max | Workspace-specific → Needs review | The personal-path finding cleared. Executable code still requires review. |
+
+| Safety code | 0.6.0 | 0.7.0 |
+|---|---:|---:|
+| destructive-command | 1 | 8 |
+| code-execution | 43 | 28 |
+| network-access | 22 | 30 |
+
+Counts are findings per unique skill, file and rule. Both shipped skills report Universal when scanned together. The one-MiB test measures the entire scanner subprocess, including JSON output, against a one-second limit.

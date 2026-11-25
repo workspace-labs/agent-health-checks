@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0] - 2026-11-26
+
+- A structural error still makes a skill Broken. Open safety evidence now produces Needs review even alongside a personal path or a finding in one product profile. A personal path on its own produces Workspace-specific.
+- Wrapped descriptions and quoted colons pass. Malformed YAML, including duplicate keys, indentation tabs, stray lines and unquoted colon-space in plain values, reports the source line. Unverified syntax receives a review note. The same reader checks optional Codex metadata. A valid invocation policy passes without display metadata, and each entry in a tool dependency list is examined.
+- Destructive operations, process execution and network calls in supported scripts or Markdown shell blocks now prompt review. Command spellings in prose or data files no longer produce those three safety findings.
+- The existing `allowed-tools-extension` finding now says “The Agent Skills specification marks allowed-tools as experimental”. Extra top-level fields receive one attributed portability note. A compatibility value over 500 characters is Broken. Angle brackets produce a Claude upload warning with separate explanations for names and descriptions. Reserved-word checks match whole hyphen-separated words.
+- Personal macOS, Linux and Windows paths now count in instructions, scripts and Codex metadata. A web address, shared or placeholder user, portable home path, relative Workspace path or data-table example no longer makes a skill Workspace-specific.
+- The skills terminal leads with safety, groups repeated rule codes, prints advice and counts omitted findings. Both terminals escape embedded control characters and direction marks. Both standalone checkers report 0.7.0.
+
+Existing tests adjusted for the corrected cases:
+
+1. `skills report emits all six status keys, labels, axis grades and finding severities` uses `/Users/alice/maps` for Workspace-specific and unused Codex metadata for Claude-ready. A separate case covers `~/Desktop/maps`.
+2. `separate Claude and Codex profiles produce directional readiness` uses a default prompt missing its skill mention to exercise the Codex profile warning. A documented policy alone now passes.
+3. `both metadata files are examined even with {"maxFiles":0}` and `both metadata files are examined even with {"maxTotalBytes":0}` use unused metadata to preserve the evidence that both files were read.
+4. `code under dist receives the ordinary safety checks` and its `build`, `vendor` and `scripts` counterparts now expect execution as well as network access for their download piped into a shell.
+5. `skill findings retain their frontmatter, name, length and trigger messages` now includes the fixture’s extra top-level field.
+6. `skill findings retain their reference, safety and agent profile messages` pins the experimental-field wording, uses a named home and checks executable code in actual script files.
+
 ## [0.6.0] - 2026-11-26
 
 - A skill installed through a top-level link into a scanned root now has one card with both locations. An escaping link names the unchecked target in a structure finding. Neither link can manufacture a duplicate-name warning.
