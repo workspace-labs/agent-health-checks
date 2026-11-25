@@ -5,9 +5,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { projectContext } = require("./project-context");
-const { executableImportWordStarts } = require("./import-context");
+const { createPathProbe, resolveNodeEntry } = require("./project-paths");
+const { relativeImportLiterals } = require("./import-context");
+const { hasUtf16Mark, packageReadProblem, parsePackageText } = require("./package-text");
 
-const CHECKER_VERSION = "0.3.0";
+const CHECKER_VERSION = "0.4.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,
@@ -230,11 +232,14 @@ function makeFinding(reportDigest, data) {
   return finding;
 }
 
-function collectProject(root, limits) {
+function collectProject(root, limits, rootEntries) {
   const started = Date.now();
   const files = [];
   const notices = [];
   const context = projectContext(root, limits, notices);
+  const incompleteDirectories = new Set();
+  const workerPaths = [];
+  let packageReadError = "";
   let totalBytes = 0;
   let limited = false;
 
@@ -247,16 +252,36 @@ function collectProject(root, limits) {
     if (limited) return;
     if (Date.now() - started > limits.maxDurationMs) return stop(`Stopped after the ${limits.maxDurationMs}ms time bound.`);
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); }
-    catch (error) { notices.push({ code: "unreadable-directory", message: `Could not read ${displayPath(root, dir)}: ${error.message}` }); return; }
+    try {
+      entries = dir === root && rootEntries ? rootEntries : fs.readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+      const rel = displayPath(root, dir);
+      incompleteDirectories.add(rel);
+      notices.push({ code: "unreadable-directory", message: `Could not read ${rel}: ${error.message}` });
+      return;
+    }
+    // Inspect root files and src before a large asset tree can exhaust the budget.
+    function rootPriority(entry) {
+      if (!entry.isDirectory()) return 0;
+      return entry.name === "src" ? 1 : 2;
+    }
+    entries.sort((a, b) => {
+      const priority = dir === root ? rootPriority(a) - rootPriority(b) : 0;
+      return priority || a.name.localeCompare(b.name);
+    });
 
     for (const entry of entries) {
       if (limited) break;
-      if (files.length >= limits.maxFiles) return stop(`Stopped at the ${limits.maxFiles}-file bound.`);
       if (Date.now() - started > limits.maxDurationMs) return stop(`Stopped after the ${limits.maxDurationMs}ms time bound.`);
       const absolute = path.join(dir, entry.name);
       let stat;
-      try { stat = fs.lstatSync(absolute); } catch { continue; }
+      try { stat = fs.lstatSync(absolute); } catch {
+        incompleteDirectories.add(displayPath(root, dir));
+        continue;
+      }
+      if (/(?:service-worker|sw)\.(?:js|ts)$/i.test(entry.name) && (stat.isSymbolicLink() || stat.isFile())) {
+        workerPaths.push(displayPath(root, absolute));
+      }
       if (stat.isSymbolicLink()) {
         let real = "";
         let resolutionCode = "";
@@ -293,17 +318,18 @@ function collectProject(root, limits) {
       }
       if (!stat.isFile()) continue;
       const rel = displayPath(root, absolute);
-      if (SECRET_NAMES.test(entry.name)) {
-        files.push({ rel, absolute, size: stat.size, secret: true, binary: true, skipped: true, text: "", digest: `secret:${stat.size}` });
-        continue;
-      }
-      if (WORKSPACE_ARTIFACT_FILE.test(entry.name)) {
+      if (!SECRET_NAMES.test(entry.name) && WORKSPACE_ARTIFACT_FILE.test(entry.name)) {
         notices.push({
           code: "workspace-artifact-excluded",
           message: `Excluded Workspace artifact file ${rel}; it was not scanned as shipped project source.`,
           actionable: false,
           classification: "workspace-editor-backup",
         });
+        continue;
+      }
+      if (files.length >= limits.maxFiles) return stop(`Stopped at the ${limits.maxFiles}-file bound.`);
+      if (SECRET_NAMES.test(entry.name)) {
+        files.push({ rel, absolute, size: stat.size, secret: true, binary: true, skipped: true, text: "", digest: `secret:${stat.size}` });
         continue;
       }
       const ext = path.extname(entry.name).toLowerCase();
@@ -324,23 +350,79 @@ function collectProject(root, limits) {
       }
       if (totalBytes + stat.size > limits.maxTotalBytes) return stop(`Stopped at the ${limits.maxTotalBytes}-byte text bound.`);
       let buffer;
-      try { buffer = fs.readFileSync(absolute); } catch { notices.push({ code: "unreadable-file", message: `Could not read ${rel}.` }); continue; }
+      try { buffer = fs.readFileSync(absolute); }
+      catch (error) {
+        if (rel === "package.json") {
+          packageReadError = ["EACCES", "EPERM"].includes(error.code) ? "access was denied" : "the file read failed";
+        }
+        notices.push({ code: "unreadable-file", message: `Could not read ${rel}.` });
+        continue;
+      }
       totalBytes += buffer.length;
-      const binary = buffer.subarray(0, Math.min(buffer.length, 8192)).includes(0);
+      const packageProblem = entry.name === "package.json" ? packageReadProblem(buffer) : "";
+      const sourceOrManifest = SOURCE_EXT.has(ext) || ext === ".json" || ext === ".webmanifest";
+      const binary = buffer.subarray(0, 8192).includes(0) || (sourceOrManifest && hasUtf16Mark(buffer));
+      if (binary && sourceOrManifest) {
+        notices.push({ code: "binary-source-skipped", message: `Skipped ${rel} because it looks binary.`, actionable: false });
+      }
       const text = binary ? "" : buffer.toString("utf8");
-      files.push({ rel, absolute, size: buffer.length, binary, skipped: false, text, digest: hash(buffer) });
+      const file = { rel, absolute, size: buffer.length, binary, skipped: false, text, digest: hash(buffer) };
+      if (packageProblem) file.packageProblem = packageProblem;
+      files.push(file);
     }
   }
 
   walk(root);
   files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return { files, notices, limited, totalBytes, durationMs: Date.now() - started };
+  return { files, notices, limited, totalBytes, workerPaths, incompleteDirectories, packageReadError, durationMs: Date.now() - started };
 }
 
 function parsePackage(file) {
-  if (!file || !file.text) return { value: null, error: null };
-  try { return { value: JSON.parse(file.text), error: null }; }
+  if (!file || file.packageProblem || !file.text) return { value: null, error: null };
+  try { return { value: parsePackageText(file.text), error: null }; }
   catch (error) { return { value: null, error }; }
+}
+
+// A name can be present, absent, or uncheckable (permissions or a link boundary).
+// A verified candidate wins even if another candidate could not be inspected.
+function anyProjectFile(names, fileSet, root, probe) {
+  let result = false;
+  for (const name of names) {
+    if (fileSet.has(name)) return true;
+    const found = probe(path.resolve(root, name));
+    if (found === true) return true;
+    if (found === null) result = null;
+  }
+  return result;
+}
+
+function missingAfterCheck(found, subject, collected, incomplete = collected.limited) {
+  if (found === true) return false;
+  if (found === false && !incomplete) return true;
+  collected.notices.push({
+    code: "file-not-checked", actionable: false,
+    message: `${subject} was not checked because the scan was incomplete or the path could not be verified.`,
+  });
+  return false;
+}
+
+function missingPackageEntry(entry, field, root, probe, collected) {
+  const absolute = path.resolve(root, entry);
+  const found = resolveNodeEntry(absolute, probe);
+  if (found === true) return false;
+  const subject = `package.json ${field} entry ${entry}`;
+  const [first, next] = path.relative(root, absolute).split(path.sep);
+  if (next && ["dist", "build", "out"].includes(first)) {
+    const output = path.join(root, first);
+    if (probe(output, "directory") === false && probe(output) === false) {
+      collected.notices.push({
+        code: "package-entry-not-built", actionable: false,
+        message: `${subject}: not built yet, cannot confirm.`,
+      });
+      return false;
+    }
+  }
+  return missingAfterCheck(found, subject, collected);
 }
 
 function detectStack(files, pkg) {
@@ -360,26 +442,7 @@ function detectStack(files, pkg) {
   return [...stack];
 }
 
-function isExactProjectFile(root, candidate) {
-  if (!inside(root, candidate)) return false;
-  try {
-    const realRoot = fs.realpathSync(root);
-    const parts = path.relative(root, candidate).split(path.sep);
-    let current = realRoot;
-    for (let i = 0; i < parts.length; i++) {
-      const entry = fs.readdirSync(current, { withFileTypes: true }).find((item) => item.name === parts[i]);
-      if (!entry) return false;
-      if (i === parts.length - 1) return entry.isFile();
-      current = fs.realpathSync(path.join(current, entry.name));
-      if (!inside(realRoot, current) || !fs.statSync(current).isDirectory()) return false;
-    }
-  } catch { return false; }
-  // Match every path segment exactly, even on case-insensitive filesystems, and
-  // never follow a parent link beyond the root or accept a linked target file.
-  return false;
-}
-
-function resolveRelativeImport(file, spec, fileSet, root) {
+function resolveRelativeImport(file, spec, fileSet, root, probe, fileMap) {
   if (!spec.startsWith(".")) return true;
   // Bundlers such as Vite attach resource queries (`?url`, `?raw`) and fragments
   // to a real on-disk path. Resolve the filesystem portion only.
@@ -391,21 +454,32 @@ function resolveRelativeImport(file, spec, fileSet, root) {
     ".js": [".ts", ".tsx", ".d.ts"], ".jsx": [".ts", ".tsx", ".d.ts"],
     ".mjs": [".mts", ".d.mts"], ".cjs": [".cts", ".d.cts"],
   }[extension] || [] : [];
-  const extensions = typescript ? IMPORT_EXT : IMPORT_EXT.filter((ext) => ext !== ".ts" && ext !== ".tsx");
+  const extensions = typescript ? [...IMPORT_EXT, ".d.ts", ".node"] :
+    [...IMPORT_EXT.filter(ext => ext !== ".ts" && ext !== ".tsx"), ".node"];
   const candidates = [
     ...substitutions.map((ext) => base.slice(0, -extension.length) + ext),
     ...extensions.map((ext) => base + ext),
     ...extensions.slice(1).map((ext) => path.posix.join(base, "index" + ext)),
   ];
+  let unresolved = false;
   for (const rel of candidates) {
     if (fileSet.has(rel)) return true;
-    // A bounded content scan can stop before collecting a valid target that is
-    // later in lexical traversal order. Check only exact file metadata inside the
-    // explicit project root before calling the import Confirmed broken; never read
-    // or execute the target through this fallback.
-    if (root && isExactProjectFile(root, path.resolve(root, ...rel.split("/")))) return true;
+    const exists = probe(path.resolve(root, rel), "file", true);
+    if (exists) return true;
+    if (exists === null) unresolved = null;
   }
-  return false;
+
+  // Use only manifest text the bounded scan already read. Looking up an
+  // external or skipped directory may reveal a package, but not its main.
+  const directory = path.resolve(root, base);
+  const manifest = probe.locate(path.join(directory, "package.json"), "file", true);
+  if (!manifest) return manifest === null ? null : unresolved;
+  const metadata = fileMap.get(displayPath(root, manifest));
+  if (!metadata || metadata.skipped || metadata.binary) return null;
+  const pkg = parsePackage(metadata).value;
+  if (typeof pkg?.main !== "string" || !pkg.main) return unresolved;
+  const resolved = resolveNodeEntry(path.resolve(directory, pkg.main), probe);
+  return resolved === false ? unresolved : resolved;
 }
 
 function isTestPath(rel) {
@@ -520,10 +594,12 @@ function auditProject(options = {}) {
   const projectId = String(options.projectId || path.basename(requested));
   const projectName = String(options.projectName || projectId);
   let root;
+  let rootEntries;
   try {
     const stat = fs.statSync(requested);
     if (!stat.isDirectory()) throw new Error("Target is not a directory");
     root = fs.realpathSync(requested);
+    rootEntries = fs.readdirSync(root, { withFileTypes: true });
   } catch (error) {
     const reportDigest = hash(`unavailable:${requested}:${error.message}`);
     const finding = makeFinding(reportDigest, {
@@ -542,7 +618,8 @@ function auditProject(options = {}) {
     };
   }
 
-  const collected = collectProject(root, limits);
+  const collected = collectProject(root, limits, rootEntries);
+  const probe = createPathProbe(root, requested);
   const fileMap = new Map(collected.files.map((file) => [file.rel, file]));
   const fileSet = new Set(fileMap.keys());
   const packageFile = fileMap.get("package.json");
@@ -552,7 +629,15 @@ function auditProject(options = {}) {
   const rawFindings = [];
   const add = (data) => rawFindings.push(data);
 
-  if (parsed.error) add({
+  const manifestProblem = collected.packageReadError || packageFile?.packageProblem;
+  if (manifestProblem) add({
+    code: "unreadable-package-json", category: "structure", severity: "high", confidence: "confirmed",
+    message: `Cannot read package.json as UTF-8 JSON because ${manifestProblem}.`, file: "package.json", line: 1,
+    impact: "Package tooling cannot reliably read the project metadata.",
+    verify: "Check read access, encoding and contents of package.json.",
+    recommendation: "Make package.json readable as nonempty UTF-8 JSON and run the scan again.",
+  });
+  else if (parsed.error) add({
     code: "malformed-package-json", category: "structure", severity: "high", confidence: "confirmed",
     message: `package.json is not valid JSON: ${parsed.error.message}`, file: "package.json", line: 1,
     impact: "Package tooling cannot reliably read the project metadata.",
@@ -561,7 +646,7 @@ function auditProject(options = {}) {
 
   const pkg = parsed.value;
   const stack = detectStack(collected.files, pkg);
-  if (!fileMap.has("README.md") && !fileMap.has("readme.md")) add({
+  if (missingAfterCheck(anyProjectFile(["README.md", "readme.md"], fileSet, root, probe), "Root README.md", collected)) add({
     code: "missing-readme", category: "maintainability", severity: "low", confidence: "recommendation",
     message: "No root README.md was found.", file: ".", line: 1,
     impact: "Future contributors and agents must reverse-engineer how to run and verify the project.",
@@ -571,13 +656,26 @@ function auditProject(options = {}) {
 
   if (pkg) {
     const main = typeof pkg.main === "string" ? pkg.main.replace(/^\.\//, "") : "";
-    if (main && !fileSet.has(main)) add({
+    if (main && missingPackageEntry(main, "main", root, probe, collected)) add({
       code: "missing-package-entry", category: "bug", severity: "high", confidence: "confirmed",
       message: `package.json declares a missing main entry: ${main}`, file: "package.json", line: lineAt(packageFile.text, packageFile.text.indexOf('"main"')),
       impact: "Node or Electron cannot launch through the declared package entry.",
       verify: `Confirm that ${main} is absent with the same filename and case.`,
       recommendation: "Restore the entry file or correct the package main field.",
     });
+    const bins = typeof pkg.bin === "string" ? [pkg.bin]
+      : pkg.bin && typeof pkg.bin === "object" && !Array.isArray(pkg.bin) ? Object.values(pkg.bin) : [];
+    const binEntries = new Set(bins.filter(value => typeof value === "string").map(value => value.replace(/^\.\//, "")));
+    for (const entry of binEntries) {
+      if (entry && missingPackageEntry(entry, "bin", root, probe, collected)) add({
+        code: "missing-package-bin", category: "bug", severity: "high", confidence: "confirmed",
+        message: `package.json declares a missing bin entry: ${entry}`,
+        file: "package.json", line: lineAt(packageFile.text, packageFile.text.indexOf('"bin"')),
+        impact: "The declared command may fail to launch after installation.",
+        verify: `Confirm that ${entry} is absent with the same filename and case.`,
+        recommendation: "Restore the command file or correct the package bin field.",
+      });
+    }
     const scripts = pkg.scripts || {};
     const testScript = typeof scripts.test === "string" ? scripts.test.trim() : "";
     if (!testScript || /no test specified|exit 1/i.test(testScript)) add({
@@ -589,7 +687,7 @@ function auditProject(options = {}) {
     });
     const dependencyCount = Object.keys(pkg.dependencies || {}).length + Object.keys(pkg.devDependencies || {}).length;
     const lockfiles = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
-    if (dependencyCount && !lockfiles.some((name) => fileSet.has(name))) add({
+    if (dependencyCount && missingAfterCheck(anyProjectFile(lockfiles, fileSet, root, probe), "Dependency lockfile", collected)) add({
       code: "missing-lockfile", category: "maintainability", severity: "medium", confidence: "likely",
       message: "Dependencies are declared but no recognized lockfile was found.", file: "package.json", line: 1,
       impact: "Installs may resolve different dependency versions across machines or agents.",
@@ -606,19 +704,24 @@ function auditProject(options = {}) {
   // they are read as samples, never loaded by the shipped app, so their risky-looking code
   // is not live production evidence either.
   const runtimeSourceFiles = sourceFiles.filter((file) => !isTestPath(file.rel) && !isNonProductionSource(file.rel));
+  const importLimit = 24;
   let brokenImports = 0;
-  for (const file of runtimeSourceFiles) {
-    const importPattern = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["'](\.[^"']+)["']/g;
-    let match;
-    let codeWords = null;
-    while ((match = importPattern.exec(file.text)) && brokenImports < 24) {
-      if (resolveRelativeImport(file, match[1], fileSet, root)) continue;
-      codeWords = codeWords || executableImportWordStarts(file.text, file.rel);
-      if (!codeWords.has(match.index)) continue;
+  importFiles: for (const file of runtimeSourceFiles) {
+    for (const { index, spec, spelling } of relativeImportLiterals(file.text, file.rel)) {
+      const resolved = resolveRelativeImport(file, spec, fileSet, root, probe, fileMap);
+      if (resolved === null) {
+        collected.notices.push({ code: "import-not-checked", actionable: false, message: `Could not check relative import ${spelling} in ${file.rel}.` });
+        continue;
+      }
+      if (resolved) continue;
+      if (brokenImports === importLimit) {
+        collected.notices.push({ code: "broken-import-limit", actionable: false, message: `Showing ${importLimit} broken relative imports. More exist.` });
+        break importFiles;
+      }
       brokenImports++;
       add({
         code: "broken-relative-import", category: "bug", severity: "high", confidence: "confirmed",
-        message: `Relative import does not resolve: ${match[1]}`, file: file.rel, line: lineAt(file.text, match.index),
+        message: `Relative import does not resolve: ${spelling}`, file: file.rel, line: lineAt(file.text, index),
         impact: "The importing module may fail to build or load.",
         verify: "Resolve the import with the project compiler and confirm filename case on disk.",
         recommendation: "Correct the import path or restore the missing module without changing unrelated imports.",
@@ -642,9 +745,12 @@ function auditProject(options = {}) {
 
   if (stack.includes("PWA")) {
     const hasManifest = [...fileSet].some((name) => /(?:^|\/)(?:manifest\.json|manifest\.webmanifest)$/i.test(name));
-    const hasWorker = [...fileSet].some((name) => /(?:service-worker|sw)\.(?:js|ts)$/i.test(name));
+    const workerNames = ["service-worker.js", "service-worker.ts", "sw.js", "sw.ts"];
+    const conventionalWorkers = ["", "public", "src"].flatMap(dir => workerNames.map(name => path.posix.join(dir, name)));
+    const hasWorker = anyProjectFile([...collected.workerPaths, ...conventionalWorkers], fileSet, root, probe);
+    const incompleteWorkerSearch = collected.limited || collected.incompleteDirectories.size > 0;
     if (!hasManifest) add({ code: "pwa-missing-manifest", category: "structure", severity: "medium", confidence: "likely", message: "PWA tooling is present but no web app manifest was found.", file: "package.json", line: 1, impact: "Install metadata and standalone behavior may be incomplete.", verify: "Inspect framework-generated metadata and the built output before treating this as a defect.", recommendation: "Add or explicitly generate a valid web app manifest." });
-    if (!hasWorker) add({ code: "pwa-missing-worker", category: "performance", severity: "medium", confidence: "recommendation", message: "PWA tooling is present but no source service worker was found.", file: "package.json", line: 1, impact: "Offline and caching behavior may depend entirely on generated framework output.", verify: "Inspect the production build and registration path.", recommendation: "Document the generated worker or add an intentional offline strategy." });
+    if (missingAfterCheck(hasWorker, "Source service worker", collected, incompleteWorkerSearch)) add({ code: "pwa-missing-worker", category: "performance", severity: "medium", confidence: "recommendation", message: "PWA tooling is present but no source service worker was found.", file: "package.json", line: 1, impact: "Offline and caching behavior may depend entirely on generated framework output.", verify: "Inspect the production build and registration path.", recommendation: "Document the generated worker or add an intentional offline strategy." });
   }
 
   const secretFiles = collected.files.filter((file) => file.secret);

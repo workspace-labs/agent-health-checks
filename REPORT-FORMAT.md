@@ -65,3 +65,28 @@ The report digest hashes the collected relative paths paired with their file dig
 **CLI.** A completed report exits 0 for every status, including Needs attention and Unavailable. Omitting the required path exits 2. Standalone help and version requests exit 0.
 
 **CommonJS exports.** `auditProject`, `collectProject`, `humanReport`, `isIntentionalReferenceData` and `resolveFinding` are synchronous functions. The module also exports the `DEFAULT_LIMITS` object. A successful `resolveFinding(report, { digest, findingId })` returns `{ report, finding }`. An unmatched digest or ID returns `null`.
+
+### Project rules and notices added in 0.4.0
+
+The following are the exact message templates. Angle brackets mark values supplied by the scan. Both findings use severity `high`, confidence `confirmed` and file `package.json`.
+
+| Finding code | Message |
+|---|---|
+| `missing-package-bin` | `package.json declares a missing bin entry: <entry>` |
+| `unreadable-package-json` | `Cannot read package.json as UTF-8 JSON because <reason>.` |
+
+The values for `<reason>` are `the file is empty`, `the file is UTF-16`, `the file contains zero bytes`, `the file contains invalid UTF-8`, `access was denied` and `the file read failed`. The UTF-16 reason requires its byte-order mark. The finding points to line 1 for an unreadable manifest and the bin declaration for a missing command.
+
+These notices have `actionable: false` and do not count toward the findings total.
+
+| Notice code | Message |
+|---|---|
+| `package-entry-not-built` | `package.json <field> entry <entry>: not built yet, cannot confirm.` |
+| `file-not-checked` | `<subject> was not checked because the scan was incomplete or the path could not be verified.` |
+| `import-not-checked` | `Could not check relative import <specifier> in <file>.` |
+| `broken-import-limit` | `Showing 24 broken relative imports. More exist.` |
+| `binary-source-skipped` | `Skipped <file> because it looks binary.` |
+
+`<field>` is `main` or `bin`. The possible subjects are `Root README.md`, `Dependency lockfile`, `Source service worker`, `package.json main entry <entry>` and `package.json bin entry <entry>`. The overflow notice requires at least 25 broken imports. A binary-looking package.json can produce both a skipped-file notice and a finding about its encoding.
+
+Each audit allows 1,024 additional directory listings and link-target reads for name checks. Cached results remain available after the budget runs out. A lookup that still requires disk access is reported as unchecked. External relative imports use names and file types only. An external link whose target would need inspection also gets an unchecked notice.

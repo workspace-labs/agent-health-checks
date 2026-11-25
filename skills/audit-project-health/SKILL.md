@@ -30,7 +30,9 @@ Read [references/stack-checks.md](references/stack-checks.md) when explaining ad
 The scanner resolves TypeScript's emitted import extensions and separates proven build output,
 device snapshots, and unpackaged tool output from source findings. Exclusions remain visible in
 scan notices; missing provenance and exhausted read budgets remain visible as coverage limits.
-Copy the whole skill package, including `scripts/project-context.js` and `scripts/import-context.js`, when sharing it.
+Relative imports that name a file above the scan root use only filename and type checks.
+An internal directory import uses its package manifest only when the scan already collected it.
+Copy the whole skill package, including every file in `scripts/`, when sharing it.
 
 ## Optional verified checks
 

@@ -114,6 +114,30 @@ Windows skipped the eight symbolic-link tests described above. All 67 new tests 
 
 The first macOS Node 22 job waited 15 minutes for a hosted runner. GitHub cancelled it before any steps ran. A single retry on the same commit passed all 190 tests. [First attempt](https://github.com/workspace-labs/agent-health-checks/actions/runs/45685837204/job/139458092327) · [Successful retry](https://github.com/workspace-labs/agent-health-checks/actions/runs/45685837204/job/139466993645)
 
+### Project entry, manifest and import checks (0.4.0, 2026-11-26)
+
+Run `node --test` from the repository root. On macOS the 190 existing tests and 55 new tests passed on each requested runtime. All four new test files clean up their own fixtures.
+
+| Node | Passed | Failed | Skipped | 2,500-picture scan |
+|---|---:|---:|---:|---:|
+| 20.20.2 | 245 | 0 | 0 | 37.2 ms |
+| 22.23.1 | 245 | 0 | 0 | 28.9 ms |
+| 24.22.1 | 245 | 0 | 0 | 21.5 ms |
+| 26.13.1 | 245 | 0 | 0 | 26.5 ms |
+
+To repeat the example and control checks, run the following from the repository root.
+
+```bash
+node --test tests/project-entry-checks.test.js tests/project-manifest-reading.test.js tests/project-import-resolution.test.js tests/project-import-forms.test.js
+node --test --test-name-pattern="512 KiB" tests/project-import-markup.test.js
+```
+
+The 16 reported examples were reproduced on v0.3.0 before the fixes. A second comparison ran the same fixtures against both versions. Valid startup files, declaration-only targets, directory package entries, external sibling files and the UTF-8 BOM manifest cleared. Missing entries and absent siblings stayed confirmed. Empty and UTF-16 manifests and the previously overlooked import forms became confirmed. At 31 broken imports the report showed the first 24 and disclosed the overflow. The 2,500-picture project found its README, its built entry and its real source error while still disclosing the file limit. Resolved imports and plain UTF-8 controls stayed quiet.
+
+The existing 512 KiB nested-input reader test passed on all four runtimes. In a separate full scan on Node 22.14.0, the same 512 KiB source took 52.1 ms and reported both missing imports. The large-picture project took 24.8 ms in that comparison. A separate test exhausts the 1,024 metadata-read budget and verifies that cached answers still work and unverified paths produce notices.
+
+A read-only comparison on a real Electron project returned Watch on both versions, with five findings, zero confirmed, two likely and three recommendations. The findings matched in order, wording and location. Both runs had the same nine notices. A root-file notice moved from fourth to first when root files were inspected first. The source digest and finding IDs changed because the text budget covered a different set of files. The checker repository itself reported Healthy with zero findings.
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0] - 2026-11-26
+
+- The project checker now finds a declared startup file in build output, with an omitted extension, or through a directory index. It checks string and named `bin` entries the same way. An absent build-output folder gets a notice that the project may need building. A genuinely missing entry in a checked location is still high and confirmed. Package fields `exports`, `module`, `types` and `browser` are deferred.
+- Root files and the root `src` folder are read before other folders. A large picture collection can still reach the scan limit, but the report can now identify the package, inspect its source and find its README. The checker verifies README, lockfile, entry and service-worker names on disk before reporting an absence. An incomplete check gets a notice. An unlistable project root reports Unavailable.
+- TypeScript imports can resolve declaration-only files. Relative imports can resolve a directory's package entry, an internal link or a native Node addon. For a path above the scan root, the checker uses file metadata only. It consults directory manifests already read within the scan budget and discloses an import it could not verify.
+- Side-effect imports (including CSS), `require.resolve`, literal backtick arguments and comments before dynamic import paths now receive missing-file checks. Quoted examples and comments stay quiet under the existing source reader. Runtime concatenation and template interpolation no longer trigger findings for partial paths. The first 24 real broken imports are shown, with an overflow notice when a 25th exists.
+- A single leading UTF-8 byte-order mark is accepted in package.json. An empty manifest, UTF-16 manifest, or manifest containing zero bytes or invalid UTF-8 gets a confirmed finding naming the reason. An operating-system read failure names the access problem. Malformed JSON in ordinary UTF-8 keeps its existing parser diagnostic. Binary-looking source files and manifests are named in notices. Images and fonts remain quiet.
+- All Step 1 and Step 2 pinned tests are unchanged.
+
 ## [0.3.0] - 2026-11-25
 
 - The project checker no longer reports import text in comments, strings and templates as a confirmed broken import. It still checks imports inside template expressions.

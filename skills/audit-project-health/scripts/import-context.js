@@ -1,5 +1,21 @@
 "use strict";
 
+const LINE_BREAK = /[\r\n\u2028\u2029]/;
+
+function skipTrivia(source, index) {
+  while (index < source.length) {
+    if (/\s/.test(source[index])) index++;
+    else if (source.startsWith("/*", index)) {
+      const end = source.indexOf("*/", index + 2);
+      if (end < 0) return source.length;
+      index = end + 2;
+    } else if (source.startsWith("//", index)) {
+      while (index < source.length && !LINE_BREAK.test(source[index])) index++;
+    } else break;
+  }
+  return index;
+}
+
 // Import checks need to enter ${...}; the legacy debugger reader deliberately does
 // not. Keep this dependency-free reader separate so its context rules cannot alter
 // debugger findings. This is lexical evidence, not execution or a module parser.
@@ -9,7 +25,6 @@ function executableImportWordStarts(text, filename = "") {
   const allowMarkup = !/\.[cm]?ts$/i.test(filename);
   const jsxName = /[\p{ID_Start}$_][\p{ID_Continue}$.:\-\u200c\u200d]*/uy;
   const starts = new Set();
-  const lineBreak = /[\r\n\u2028\u2029]/;
   const prefixWords = new Set([
     "await", "break", "case", "continue", "delete", "do", "else", "in", "instanceof", "new",
     "of", "return", "throw", "typeof", "void", "yield",
@@ -21,22 +36,8 @@ function executableImportWordStarts(text, filename = "") {
     return jsxName.exec(source)?.[0] || "";
   }
 
-  function skipTagTrivia(index) {
-    while (index < source.length) {
-      if (/\s/.test(source[index])) index++;
-      else if (source.startsWith("/*", index)) {
-        const end = source.indexOf("*/", index + 2);
-        if (end < 0) return source.length;
-        index = end + 2;
-      } else if (source.startsWith("//", index)) {
-        while (index < source.length && !lineBreak.test(source[index])) index++;
-      } else break;
-    }
-    return index;
-  }
-
   function openElement() {
-    const nameStart = skipTagTrivia(i + 1);
+    const nameStart = skipTrivia(source, i + 1);
     const name = nameAt(nameStart);
     const end = nameStart + name.length;
     if (name ? !/[\s/<>]/.test(source[end] || "") : source[end] !== ">") return false;
@@ -73,9 +74,9 @@ function executableImportWordStarts(text, filename = "") {
     let inClass = false;
     i++;
     while (i < source.length) {
-      if (lineBreak.test(source[i])) return false;
+      if (LINE_BREAK.test(source[i])) return false;
       if (source[i] === "\\") {
-        if (lineBreak.test(source[i + 1])) return false;
+        if (LINE_BREAK.test(source[i + 1])) return false;
         i += 2;
         continue;
       }
@@ -107,9 +108,9 @@ function executableImportWordStarts(text, filename = "") {
       if (next !== "/") {
         return openElement();
       }
-      const nameStart = skipTagTrivia(i + 2);
+      const nameStart = skipTrivia(source, i + 2);
       const closing = nameAt(nameStart);
-      i = skipTagTrivia(nameStart + closing.length);
+      i = skipTrivia(source, nameStart + closing.length);
       if (closing !== context.name || source[i] !== ">") return false;
       contexts.pop();
       i++;
@@ -125,7 +126,7 @@ function executableImportWordStarts(text, filename = "") {
       if (end < 0) return false;
       i = end + 1;
     } else if (/\s/.test(char) || (char === "/" && (next === "/" || next === "*"))) {
-      i = skipTagTrivia(i);
+      i = skipTrivia(source, i);
     } else if (char === "=" && context.attribute) {
       context.attribute = false;
       i++;
@@ -157,19 +158,19 @@ function executableImportWordStarts(text, filename = "") {
       continue;
     }
     if (/\s/.test(char)) {
-      if (lineBreak.test(char)) context.newline = true;
+      if (LINE_BREAK.test(char)) context.newline = true;
       i++;
       continue;
     }
     if ((char === "/" && next === "/") || (i === 0 && char === "#" && next === "!")) {
       i += 2;
-      while (i < source.length && !lineBreak.test(source[i])) i++;
+      while (i < source.length && !LINE_BREAK.test(source[i])) i++;
       continue;
     }
     if (char === "/" && next === "*") {
       i += 2;
       while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) {
-        if (lineBreak.test(source[i])) context.newline = true;
+        if (LINE_BREAK.test(source[i])) context.newline = true;
         i++;
       }
       i = Math.min(source.length, i + 2);
@@ -281,4 +282,69 @@ function executableImportWordStarts(text, filename = "") {
   return unclosed ? keepUncertain(unclosed.start) : starts;
 }
 
-module.exports = { executableImportWordStarts };
+// Decode literal escapes without evaluating project text. Invalid escapes and
+// interpolated templates cannot prove that a particular file is missing.
+const escapePattern = /\\(?:\r\n|[\r\n\u2028\u2029]|x([\da-fA-F]{2})|u([\da-fA-F]{4})|u\{([\da-fA-F]+)\}|([0-3][0-7]{0,2}|[4-7][0-7]?)|([^xu]))/y;
+const simpleEscapes = new Map(Object.entries({ b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" }));
+
+function readRelativeLiteral(source, opening, call) {
+  const quote = source[opening];
+  if (quote !== '"' && quote !== "'" && !(call && quote === "`")) return null;
+  if (source[opening + 1] !== "." && source[opening + 1] !== "\\") return null;
+  let segment = opening + 1;
+  let spec = "";
+  for (let i = segment; i < source.length; i++) {
+    if (source[i] === quote) {
+      spec += source.slice(segment, i);
+      return spec.startsWith(".") ? { spec, end: i + 1 } : null;
+    }
+    if (quote === "`" && source.startsWith("${", i)) return null;
+    if (quote !== "`" && (source[i] === "\n" || source[i] === "\r")) return null;
+    if (source[i] !== "\\" && !(quote === "`" && source[i] === "\r")) continue;
+    spec += source.slice(segment, i);
+    if (source[i] === "\r") {
+      // Template literals normalize CR and CRLF to LF.
+      spec += "\n";
+      if (source[i + 1] === "\n") i++;
+    } else {
+      escapePattern.lastIndex = i;
+      const escape = escapePattern.exec(source);
+      if (!escape) return null;
+      const [, hex, unicode, braced, octal, simple] = escape;
+      if (hex || unicode || braced) {
+        const point = parseInt(hex || unicode || braced, 16);
+        if (point > 0x10ffff) return null;
+        spec += String.fromCodePoint(point);
+      } else if (octal) {
+        if (quote === "`" && octal !== "0") return null;
+        spec += String.fromCharCode(parseInt(octal, 8));
+      } else if (simple) {
+        spec += simpleEscapes.get(simple) ?? simple;
+      }
+      i = escapePattern.lastIndex - 1;
+    }
+    segment = i + 1;
+  }
+  return null;
+}
+
+// The prefix stops before the literal so a template expression can still contain
+// a separate executable import. The step 2 reader decides which words are code.
+function* relativeImportLiterals(source, filename) {
+  const prefix = /\b(?:from\s*(?=["'])|require\s*(?:\.\s*resolve\s*)?\(|import\s*(?:\(|(?=["'])))/g;
+  let starts;
+  for (const match of source.matchAll(prefix)) {
+    starts ??= executableImportWordStarts(source, filename);
+    if (!starts.has(match.index)) continue;
+    const call = match[0].endsWith("(");
+    const opening = skipTrivia(source, match.index + match[0].length);
+    const literal = readRelativeLiteral(source, opening, call);
+    if (!literal) continue;
+    // Only a complete literal argument names a path. A comma can introduce
+    // import attributes or require.resolve options after that argument.
+    if (call && ![",", ")"].includes(source[skipTrivia(source, literal.end)])) continue;
+    yield { index: match.index, spec: literal.spec, spelling: source.slice(opening + 1, literal.end - 1) };
+  }
+}
+
+module.exports = { executableImportWordStarts, relativeImportLiterals };

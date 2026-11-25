@@ -3,6 +3,7 @@
 // Read declarations as bounded data. Never load a project's config as JavaScript.
 const fs = require("node:fs");
 const path = require("node:path");
+const { packageReadProblem, parsePackageText } = require("./package-text");
 
 function localPath(value) {
   if (typeof value !== "string" || !value.trim() || /[\\:*?\[\]{}\x00-\x1f]/.test(value)) return "";
@@ -51,7 +52,7 @@ function projectContext(root, limits, notices = []) {
             const buffer = fs.readFileSync(path.join(root, rel));
             metadataBytes += buffer.length;
             metadataReads++;
-            value = buffer.toString("utf8");
+            if (rel !== "package.json" || !packageReadProblem(buffer)) value = buffer.toString("utf8");
           }
         }
       }
@@ -60,7 +61,7 @@ function projectContext(root, limits, notices = []) {
     return value;
   }
   function json(rel) {
-    try { return JSON.parse(text(rel)); } catch { return null; }
+    try { return rel === "package.json" ? parsePackageText(text(rel)) : JSON.parse(text(rel)); } catch { return null; }
   }
   const pkg = json("package.json") || {};
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
