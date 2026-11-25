@@ -80,6 +80,18 @@ On macOS, the original suite at `9c9a5b7` and the expanded 0.2.0 suite both ran 
 
 The 11 new tests cover release agreement, report formats and finding identity, command exit codes, and the scan commands in both skill guides. The command test also runs inside a sample project that carries its own same-named scripts.
 
+### GitHub Actions on macOS, Linux, and Windows (2026-11-25)
+
+All nine jobs ran `node --test` at commit `4598ead`. Each row gives the result for **each** of the three Node versions on that system. [GitHub Actions run 45681088269](https://github.com/workspace-labs/agent-health-checks/actions/runs/45681088269)
+
+| System | Node versions | Tests per job | Passed | Skipped | Failed |
+|---|---|---:|---:|---:|---:|
+| macOS | 20, 22, 24 | 123 | 123 | 0 | 0 |
+| Ubuntu Linux | 20, 22, 24 | 123 | 123 | 0 | 0 |
+| Windows | 20, 22, 24 | 123 | 115 | 8 | 0 |
+
+**Known Windows coverage gap.** Eight symbolic-link tests are disabled on Windows. Three cover escaping or broken skill links and the identity of refused root links. Five cover project links, including scan bounds, broken and internal links, TypeScript import resolution, and linked snapshot metadata. All eight ran on macOS and Ubuntu.
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:
@@ -92,7 +104,6 @@ On 2026-10-09, both checkers were run on real material, not test fixtures:
 
 ## Not tested
 
-- **Windows and Linux.** Every run above was on macOS.
 - **Node older than 20.** Not tried.
 - **No record for the September 16 changes.** The TypeScript-import, file-name-case and
   `project-context.js` work has no written task card. Its tests are in this repo and pass,
