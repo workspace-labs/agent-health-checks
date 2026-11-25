@@ -5,8 +5,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { projectContext } = require("./project-context");
+const { executableImportWordStarts } = require("./import-context");
 
-const CHECKER_VERSION = "0.2.0";
+const CHECKER_VERSION = "0.3.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,
@@ -609,8 +610,11 @@ function auditProject(options = {}) {
   for (const file of runtimeSourceFiles) {
     const importPattern = /(?:\bfrom\s*|\brequire\s*\(|\bimport\s*\()\s*["'](\.[^"']+)["']/g;
     let match;
+    let codeWords = null;
     while ((match = importPattern.exec(file.text)) && brokenImports < 24) {
       if (resolveRelativeImport(file, match[1], fileSet, root)) continue;
+      codeWords = codeWords || executableImportWordStarts(file.text, file.rel);
+      if (!codeWords.has(match.index)) continue;
       brokenImports++;
       add({
         code: "broken-relative-import", category: "bug", severity: "high", confidence: "confirmed",
