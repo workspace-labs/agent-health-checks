@@ -55,6 +55,8 @@ const OTHER_LANGUAGES = new Map(Object.entries({
   ".html": "HTML", ".htm": "HTML", ".css": "CSS", ".scss": "Sass", ".sass": "Sass", ".less": "Less",
   ".vue": "Vue", ".svelte": "Svelte", ".astro": "Astro", ".sql": "SQL",
 }));
+// These filename labels identify presentation formats, including component templates.
+const MARKUP_AND_STYLES = new Set(["HTML", "CSS", "Sass", "Less", "Vue", "Svelte", "Astro"]);
 const IMPORT_EXT = ["", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json"];
 const REFERENCE_DATA_EXT = new Set([".csv", ".tsv", ".jsonl", ".ndjson"]);
 
@@ -256,11 +258,9 @@ function makeFinding(reportDigest, data) {
   return finding;
 }
 
-function coverageNotice(count, languages) {
-  return {
-    code: "code-coverage", actionable: false,
-    message: `Code rules examined ${count} JavaScript/TypeScript file${count === 1 ? "" : "s"}. Other languages seen but not examined: ${languages || "none"}.`,
-  };
+function coverageNotice(count, languages = []) {
+  const message = `Code rules examined ${count} JavaScript/TypeScript file${count === 1 ? "" : "s"}. Other languages seen but not examined: ${languages.join(", ") || "none"}.`;
+  return { code: "code-coverage", actionable: false, message };
 }
 
 function collectProject(root, limits, rootEntries, started = Date.now()) {
@@ -663,7 +663,7 @@ function auditProject(options = {}) {
       schemaVersion: 1, checkerVersion: CHECKER_VERSION, readOnly: true, projectId, projectName, root: requested,
       digest: reportDigest, status: "Unavailable", statusKey: "unavailable", stack: ["Unknown"],
       summary: { findings: 1, confirmed: 1, likely: 0, recommendation: 0, high: 1 },
-      findings: [finding], notices: [coverageNotice(0, "")], limits, fileCount: 0, totalBytes: 0, durationMs: Date.now() - started,
+      findings: [finding], notices: [coverageNotice(0)], limits, fileCount: 0, totalBytes: 0, durationMs: Date.now() - started,
       disclaimer: "Static evidence only. No project code was executed or changed.",
     };
   }
@@ -911,11 +911,12 @@ function auditProject(options = {}) {
   if (emptyCatchCount) add({ code: "empty-catch", category: "bug", severity: "medium", confidence: "likely", message: `${emptyCatchCount} empty catch block${emptyCatchCount === 1 ? " suppresses" : "s suppress"} errors without evidence.`, ...emptyCatchEvidence, impact: "Failures may become silent and difficult to diagnose.", verify: "Exercise the surrounding failure path and inspect expected recovery behavior.", recommendation: "Handle, report, or deliberately document the swallowed error." });
   if (dynamicExecCount) add({ code: "dynamic-code-execution", category: "security", severity: "high", confidence: "likely", message: `${dynamicExecCount} dynamic code execution primitive${dynamicExecCount === 1 ? " was" : "s were"} found.`, ...dynamicExecEvidence, impact: "Untrusted input may become executable code if the call path is not tightly controlled.", verify: "Trace every input reaching the cited primitive.", recommendation: "Replace dynamic evaluation with explicit parsing or a constrained dispatch table." });
 
-  const languages = [...collected.otherLanguages].sort().join(", ");
+  const languages = [...collected.otherLanguages].sort();
   collected.notices.push(coverageNotice(examinedSources.size, languages));
-  if (!examinedSources.size && languages) add({
+  const programmingLanguages = languages.filter(language => !MARKUP_AND_STYLES.has(language));
+  if (!examinedSources.size && programmingLanguages.length) add({
     code: "code-not-examined", category: "coverage", severity: "low", confidence: "recommendation",
-    message: `${languages} code was not examined.`, file: ".", line: 1,
+    message: `${programmingLanguages.join(", ")} code was not examined.`, file: ".", line: 1,
     impact: "Source issues in these languages can be absent from this report.",
     verify: "Review which languages have source files in this project.",
     recommendation: "Use a checker that examines those languages.",

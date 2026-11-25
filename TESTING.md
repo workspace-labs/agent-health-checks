@@ -201,6 +201,10 @@ The real Electron project returned Watch, five findings and zero confirmed on bo
 
 The 0.5.0 runs above are local. The hosted macOS, Linux and Windows results further up this file belong to earlier releases.
 
+#### 0.5.0 fix round 1
+
+On the same Mac, `node --test --test-reporter=tap` passed 332/332 on each of Node 20.20.2, 22.23.1, 24.22.1 and 26.13.1, with zero skips. Running `node --test tests/project-source-rules.test.js tests/project-coverage.test.js` with the updated fixtures gave 10 failures on `3f1ec2f` and 65/65 passes after the fixes. Six failures covered global and indirect eval calls. Four covered markup and styles, including the same static site with and without a README. The real Electron project retained its five findings and its fingerprint.
+
 ## Running the checkers on real material
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:

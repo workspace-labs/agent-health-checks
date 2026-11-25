@@ -7,10 +7,10 @@ const os = require("node:os");
 const path = require("node:path");
 const { auditProject, humanReport } = require("../skills/audit-project-health/scripts/audit-project");
 
-function project(t, files) {
+function project(t, files, { readme = true } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "project-coverage-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  for (const [rel, value] of Object.entries({ "README.md": "", ...files })) {
+  for (const [rel, value] of Object.entries(readme ? { "README.md": "", ...files } : files)) {
     const dest = path.join(root, rel);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, value);
@@ -210,4 +210,49 @@ test("a byte stop keeps observed names for ignored, sample and skipped folders",
   assert.ok(report.notices.some(n => n.code === "scan-limit"));
   assert.deepEqual(boundary(report, "git-ignored-folders"), ["Git ignore rules excluded 1 folder: zzz-scratch."]);
   assert.deepEqual(boundary(report, "folders-not-judged"), ["Code rules excluded 2 folders: demos, vendor."]);
+});
+
+for (const readme of [false, true]) {
+  test("a plain HTML and CSS site " + (readme ? "with" : "without") + " a README retains its documentation verdict", t => {
+    const report = auditProject({ path: project(t, {
+      "index.html": "<h1>Plain website</h1>", "style.css": "body { color: black; }",
+    }, { readme }) });
+    assert.equal(report.fileCount, readme ? 3 : 2);
+    assert.equal(report.statusKey, readme ? "healthy" : "watch");
+    assert.deepEqual(report.findings.map(f => [f.code, f.severity, f.confidence, f.message]), readme ? [] : [
+      ["missing-readme", "low", "recommendation", "No root README.md was found."],
+    ]);
+    assert.equal(report.notices.length, 1);
+    checkCoverage(report, "Code rules examined 0 JavaScript/TypeScript files. Other languages seen but not examined: CSS, HTML.");
+  });
+}
+
+test("stylesheets and markup-only component templates have notices without findings", t => {
+  const report = auditProject({ path: project(t, {
+    "styles.sass": "body\n  color: black", "styles.scss": "body { color: black; }", "styles.less": ".site {}",
+    "Page.vue": "<template><h1>Site</h1></template>", "Page.svelte": "<h1>Site</h1>", "Page.astro": "<h1>Site</h1>",
+  }) });
+  assert.deepEqual(report.findings, []);
+  checkCoverage(report, "Code rules examined 0 JavaScript/TypeScript files. Other languages seen but not examined: Astro, Less, Sass, Svelte, Vue.");
+});
+
+test("a mixed static site names only programming languages in its coverage finding", t => {
+  const report = auditProject({ path: project(t, {
+    "index.html": "<h1>Page</h1>", "style.css": "h1 {}", "Page.vue": "<template><p>Site</p></template>",
+    "generate.py": "print('site')", "serve.go": "package main",
+  }) });
+  assert.equal(report.statusKey, "watch");
+  assert.deepEqual(report.findings.map(f => [f.code, f.message]), [
+    ["code-not-examined", "Go, Python code was not examined."],
+  ]);
+  checkCoverage(report, "Code rules examined 0 JavaScript/TypeScript files. Other languages seen but not examined: CSS, Go, HTML, Python, Vue.");
+});
+
+test("a shell-only project still gets one Watch coverage finding", t => {
+  const report = auditProject({ path: project(t, { "build.sh": "echo site" }) });
+  assert.equal(report.statusKey, "watch");
+  assert.deepEqual(report.findings.map(f => [f.code, f.message]), [
+    ["code-not-examined", "Shell code was not examined."],
+  ]);
+  checkCoverage(report, "Code rules examined 0 JavaScript/TypeScript files. Other languages seen but not examined: Shell.");
 });

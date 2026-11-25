@@ -63,6 +63,14 @@ for (const [label, source, matches] of [
   ["quoted text", "'eval(value)'; \"new Function(value)\"; `eval(value)`;", 0],
   ["methods", "page.$eval('h1', callback); obj.eval(value); obj?.eval(value);", 0],
   ["live code", "eval(value); new Function(value);", 2],
+  ...["window", "globalThis", "self", "global"].map(name => [
+    "direct " + name + ".eval", name + " /* receiver */ .eval(value);", 1,
+  ]),
+  ["indirect zero-comma call", "(0, /* reference */ eval)(value);", 1],
+  ["indirect call as an if body", "if (ready) (0, eval)(value);", 1],
+  ["nested global lookalikes", "obj.window.eval(value); obj?.globalThis.eval(value); obj.self.eval(value); obj.global.eval(value);", 0],
+  ["comma lookalikes", "(0, eval); (0, obj.eval)(value); deliver(0, eval)(value);", 0],
+  ["global and indirect calls in text", "// window.eval(value)\n'(0, eval)(value)'; /* self.eval(value) */", 0],
   ["live template expression", "const result = `value: ${eval(value)}`;", 1],
 ]) {
   test("dynamic code: " + label, t => {

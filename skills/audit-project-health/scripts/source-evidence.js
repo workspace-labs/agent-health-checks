@@ -8,6 +8,7 @@ function sourceTokens(text, timeExpired) {
   const source = String(text || "");
   const tokens = [];
   const interpolations = [];
+  const controlParens = [];
   let nextTimeCheck = 8192;
   let inTemplate = false;
   const regexPrefixWords = new Set([
@@ -93,9 +94,9 @@ function sourceTokens(text, timeExpired) {
       continue;
     }
     if (/[0-9]/.test(char)) {
-      tokens.push({ value: "number", index: i });
-      i++;
+      const start = i++;
       while (/[A-Za-z0-9_.]/.test(source[i] || "")) i++;
+      tokens.push({ value: source.slice(start, i), index: start });
       canStartRegex = false;
       continue;
     }
@@ -109,7 +110,16 @@ function sourceTokens(text, timeExpired) {
       }
     }
     const value = source.startsWith("===", i) ? "===" : source.startsWith("==", i) ? "==" : char;
-    tokens.push({ value, index: i });
+    if (value === "(") {
+      const previous = tokens.at(-1);
+      const control = /^(?:if|for|while|with)$/.test(previous?.value) && tokens.at(-2)?.value !== ".";
+      controlParens.push(control);
+      tokens.push({ value, index: i, expressionStart: canStartRegex || previous?.endsControl });
+    } else if (value === ")") {
+      tokens.push({ value, index: i, endsControl: controlParens.pop() });
+    } else {
+      tokens.push({ value, index: i });
+    }
     canStartRegex = /[({[,:;=!?&|+\-*%^~<>]/.test(char);
     i += value.length;
   }
@@ -207,6 +217,8 @@ function windowSandboxIndex(tokens, timeExpired) {
   for (const [object, index] of candidates) if (preferences.has(object)) return index;
 }
 
+const globalEvalReceivers = new Set(["window", "globalThis", "self", "global"]);
+
 function executableEvidence(source, electron, timeExpired) {
   const debug = [];
   const dynamic = [];
@@ -229,8 +241,16 @@ function executableEvidence(source, electron, timeExpired) {
       while (source[end] === " " || source[end] === "\t" || source[end] === "\r") end++;
       if (source[end] === ";" || source[end] === "\n" || end === source.length) debug.push(index);
     }
-    if ((current === "eval" && previous !== "." && next === "(") ||
-        (current === "new" && next === "Function" && value(i + 2) === "(")) dynamic.push(index);
+    if (current === "eval") {
+      const globalReceiver = previous === "." && globalEvalReceivers.has(value(i - 2)) && value(i - 3) !== ".";
+      const directCall = next === "(" && (previous !== "." || globalReceiver);
+      // The opening parenthesis must group an expression. In fn(0, eval)(x)
+      // the second call invokes the function's return value.
+      const indirectCall = previous === "," && value(i - 2) === "0" && tokens[i - 3]?.expressionStart &&
+        next === ")" && value(i + 2) === "(";
+      if (directCall || indirectCall) dynamic.push(index);
+    }
+    if (current === "new" && next === "Function" && value(i + 2) === "(") dynamic.push(index);
     if (current === "require" && previous !== "." && next === "." && value(i + 2) === "main" &&
         value(i + 3) === "===" && value(i + 4) === "module") mainGuard = true;
     if (!electron) continue;
