@@ -36,12 +36,22 @@ for (const bytes of [100, 1]) {
   });
 }
 
-test("nested source precedes manifests, tests and documents in the evidence budget", t => {
-  const root = project(t, { "package.json": '{"scripts":{"test":"test"}}', "README.md": "docs",
+test("nested source precedes nested manifests, tests and documents in the evidence budget", t => {
+  const root = project(t, { "child/package.json": '{"scripts":{"test":"test"}}', "README.md": "docs",
     "tests/a.js": "test", "deep/lib/z.ts": "eval(x);" });
   const report = auditProject({ path: root, limits: { maxTotalBytes: 8 } });
   assert.ok(report.findings.some(f => f.code === "dynamic-code-execution"));
   checkUnread(report);
+});
+
+test("root package checks survive sources exceeding the default byte budget", t => {
+  const files = { "package.json": '{"name":"example"}' };
+  const source = "/*" + "x".repeat(400000 - 4) + "*/";
+  for (let i = 0; i < 40; i++) files["src/file-" + i + ".js"] = source;
+  const report = auditProject({ path: project(t, files) });
+  const codes = report.findings.map(f => f.code);
+  assert.ok(codes.includes("source-not-read"));
+  assert.ok(codes.includes("missing-test-script"));
 });
 
 test("a byte stop names every remaining source, even one small enough to fit by itself", t => {

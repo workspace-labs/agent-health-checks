@@ -90,6 +90,29 @@ test("omitted and option-shaped values cannot be mistaken for project paths or n
   }
 });
 
+test("a repeated path cannot silently select the second project", t => {
+  const { temp, project, run } = fixture(t);
+  const result = run("--path", path.join(temp, "nonexistent"), "--path", project);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "Duplicate option: --path\n");
+});
+
+test("all value options reject duplicates across equals and separate syntax", t => {
+  const { project, run } = fixture(t);
+  for (const [key, value] of [
+    ["--path", project], ["--id", "example"], ["--name", "Example"], ["--profile", "workspace"],
+    ["--max-files", "20"], ["--max-file-bytes", "1000"], ["--max-total-bytes", "5000"],
+    ["--max-duration-ms", "2000"],
+  ]) {
+    const base = key === "--path" ? [] : ["--path", project];
+    const result = run(...base, key + "=" + value, key, value);
+    assert.equal(result.status, 1, key);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Duplicate option: " + key + "\n");
+  }
+});
+
 for (const equals of [true, false]) {
   test("value options accept " + (equals ? "equals" : "separate") + " syntax", t => {
     const { project, run } = fixture(t);

@@ -2,10 +2,10 @@
 
 ## [0.8.0] - 2026-11-26
 
-- Project CLI exit codes now distinguish Healthy or Watch (0), Needs attention (2) and Unavailable or incorrect usage (1). Omitting `--path` previously exited 2. Unknown options, missing values and invalid limits are reported. All value options accept a space or an equals sign, and four limits can be set from the CLI.
+- Project CLI exit codes now distinguish Healthy or Watch (0), Needs attention (2) and Unavailable or incorrect usage (1). Omitting `--path` previously exited 2. Unknown options, missing values and invalid limits are reported. Each value option can appear once, using a space or an equals sign, and four limits can be set from the CLI.
 - The checker refuses the home folder, its ancestors and filesystem roots through the CLI and module. Unavailable findings now say “The checker cannot inspect or verify this folder.” and “Check that --path names an existing folder you can read.” This changes their finding IDs. The audit guide uses general review language.
 - Workspace layout exclusions are opt-in through `--profile workspace` or the module's `profile` option. The default checks those paths as ordinary content.
-- Runtime JavaScript and TypeScript receive the text budget first. A medium coverage finding identifies eligible sources missed by a limit. Links consume file slots. Size skips, binaries and broken links are reported as notices. Single-path notices share a count and up to ten examples. The terminal groups findings and keeps high findings and unread source visible.
+- The checker reads the root `package.json` first so source files cannot exhaust the text budget before the entry, bin and test checks. Runtime JavaScript and TypeScript come next. A medium coverage finding identifies eligible sources missed by a limit. Links consume file slots. Size skips, binaries and broken links are reported as notices. Single-path notices share a count and up to ten examples. The terminal groups findings and keeps high findings and unread source visible.
 - Repeating the same unresolved import on one line now produces one finding. The dynamic-code check recognizes bracket access and optional calls to global eval.
 
 ### Existing test expectations changed in 0.8.0

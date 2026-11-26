@@ -267,8 +267,8 @@ function collectProject(root, limits, rootEntries, started = Date.now(), profile
   }
 
   function priority(file) {
-    if (unread.has(file.rel)) return 0;
-    if (file.rel === "package.json") return 1;
+    if (file.rel === "package.json") return 0;
+    if (unread.has(file.rel)) return 1;
     if (!isTestPath(file.rel) && /(?:^|\/)(?:package\.json|manifest\.json|[^/]+\.webmanifest|[^/]+\.lock|[^/]*lock\.(?:json|yaml))$/i.test(file.rel)) return 2;
     return 3;
   }

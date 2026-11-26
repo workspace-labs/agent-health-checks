@@ -11,8 +11,11 @@ const limitOptions = new Map([
   ["--max-total-bytes", "maxTotalBytes"], ["--max-duration-ms", "maxDurationMs"],
 ]);
 
+class DuplicateOptionError extends Error {}
+
 function parseArgs(argv) {
   const options = { limits: {} };
+  const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") options.json = true;
@@ -24,6 +27,8 @@ function parseArgs(argv) {
       if (!valueOptions.has(key) && !limitOptions.has(key)) throw new Error("Unknown option: " + arg);
       const value = equals < 0 ? argv[++i] : arg.slice(equals + 1);
       if (!value || value.startsWith("--")) throw new Error(key + " requires a value.");
+      if (seen.has(key)) throw new DuplicateOptionError("Duplicate option: " + key);
+      seen.add(key);
       if (limitOptions.has(key)) {
         const number = Number(value);
         if (!/^\d+$/.test(value) || !Number.isSafeInteger(number) || number < 1) {
@@ -45,7 +50,8 @@ function run(argv, auditProject, version) {
   try {
     options = parseArgs(argv);
   } catch (error) {
-    process.stderr.write(terminalText(error.message) + "\n" + USAGE + "\n");
+    process.stderr.write(terminalText(error.message) + "\n");
+    if (!(error instanceof DuplicateOptionError)) process.stderr.write(USAGE + "\n");
     return 1;
   }
   if (options.version || options.help) {
