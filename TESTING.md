@@ -506,3 +506,40 @@ On macOS, v0.8.0 at `9b1edb8` passed its original 624 tests on Node 20.20.2. Bef
 All ten CLI examples were exercised with separate fixture roots. The JSON and CSV data files, early TOC, directly linked nested document, README product names and declared target all produced Universal with exit 0. The three-document chain reported the two indirect references and exited 0. The two review skills stayed Universal and ranked first together. The destructive script kept its finding and exited 2. The empty explicit root exited 1. Controls included a long guide lacking contents, a missing bundled link, an undeclared tool, a harmless script and an unavailable root.
 
 On the same read-only default inventory, both versions judged 84 skills and exited 2. Findings fell from 372 to 231 and unverified references from 147 to 10. The original CLI JSON was 1,359,607 UTF-8 bytes, including 1,075,375 bytes of serialized bodies and frontmatter values. The 0.9.0 CLI emitted 234,907 bytes by default and 1,312,223 with `--include-body`. All 84 full skill objects matched the module output after JSON serialization. The two shipped skills each reported Universal with zero findings. A read-only Workspace project scan with `--profile workspace` retained Watch and all four original finding objects, including their IDs.
+
+#### GitHub Actions for 0.9.0
+
+All nine jobs passed on commit `64f1652`. Each cell shows **passed / skipped** out of 649 tests. Every job had zero failures. [GitHub Actions run 45750414917](https://github.com/workspace-labs/agent-health-checks/actions/runs/45750414917)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 649 / 0 | 649 / 0 | 649 / 0 |
+| Ubuntu Linux | 648 / 1 | 648 / 1 | 648 / 1 |
+| Windows | 631 / 18 | 631 / 18 | 631 / 18 |
+
+The corrected coverage walk skips nested links and junctions. The original Windows junction test and the new parent-loop test ran and passed in all nine jobs. [Windows Node 20 job](https://github.com/workspace-labs/agent-health-checks/actions/runs/45750414917/job/139676571722)
+
+Each Ubuntu job skipped `the refusal recognizes alternate home spelling on case-insensitive volumes` because its filesystem is case-sensitive. This test passed on macOS and Windows. [Ubuntu Node 20 job](https://github.com/workspace-labs/agent-health-checks/actions/runs/45750414917/job/139676571785)
+
+Each Windows job skipped the same 18 symbolic-link tests as 0.8.0. All 18 passed on macOS and Ubuntu.
+
+| Test file under `tests/` | Test skipped on Windows |
+|---|---|
+| `project-coverage.test.js` | a symlinked info directory cannot supply ignore rules |
+| `project-doctor-context.test.js` | ordinary in-project links stay visible without duplicating findings from their target |
+| `project-doctor-reading.test.js` | TypeScript substitution refuses a matching source symlink escaping the project |
+| `project-doctor-reading.test.js` | tablet symlinked metadata cannot exclude the snapshot |
+| `project-doctor.test.js` | scan bounds and escaping symlinks remain visible |
+| `project-doctor.test.js` | broken project symlinks are disclosed with a safe resolution code |
+| `project-entry-checks.test.js` | links to external files and output directories cannot confirm missing main or bin |
+| `project-import-resolution.test.js` | imports resolve internal file and directory links and refuse links crossing the project boundary |
+| `project-import-resolution.test.js` | absolute internal links resolve through the spelling used to open the project |
+| `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit |
+| `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing |
+| `project-report-noise.test.js` | 3000 broken links respect the file bound and fit in one ten-example notice |
+| `project-report-noise.test.js` | a lone broken link keeps its path and reason and a valid internal link stays a distinct notice |
+| `skill-doctor.test.js` | symlinks escaping a declared root are refused |
+| `skill-doctor.test.js` | broken skill symlinks are explicit safety findings |
+| `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest |
+| `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence |
+| `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding |
