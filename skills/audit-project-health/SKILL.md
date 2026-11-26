@@ -1,6 +1,6 @@
 ---
 name: audit-project-health
-description: Read-only, model-neutral health audit for JavaScript and TypeScript projects. Use when the user asks to inspect, diagnose, review, assess, or improve a project; find evidence-backed bugs, performance risks, security hazards, missing tests, broken local references, or maintainability concerns; compare project health; or prepare a safe finding for a human-gated fix. Never edits the project, executes project scripts, installs dependencies, or uses the network.
+description: "Use when checking project health across JavaScript and TypeScript codebases. A static, read-only scan reports broken local references, source risks, missing test evidence and coverage limits, with file and line locations for findings. Not for: reviewing a single change, a full security review, or fixing anything."
 ---
 
 # Audit Project Health

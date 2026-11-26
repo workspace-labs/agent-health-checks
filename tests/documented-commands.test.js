@@ -21,12 +21,12 @@ function readInstructions(dir) {
 }
 
 function run(command, cwd, env, expectedExit = 0) {
-  assert.match(command, /^node "\$CHECKER"(?: --root "collection=\$COLLECTION"| --path "\$PROJECT")?(?: --json)?$/);
+  assert.match(command, /^node "\$CHECKER"(?: --root "candidate=\$CANDIDATE")?(?: --root "collection=\$COLLECTION"| --path "\$PROJECT")?(?: --json)?$/);
   // Run the published command with the same shell variables on both platforms.
   const windows = process.platform === "win32";
   const shell = windows ? "powershell.exe" : "/bin/sh";
   const args = windows ? ["-NoProfile", "-NonInteractive", "-Command",
-    '$CHECKER=$env:CHECKER; $PROJECT=$env:PROJECT; $COLLECTION=$env:COLLECTION; ' +
+    '$CHECKER=$env:CHECKER; $PROJECT=$env:PROJECT; $COLLECTION=$env:COLLECTION; $CANDIDATE=$env:CANDIDATE; ' +
     command + '; exit $LASTEXITCODE'] : ["-c", command];
   const result = spawnSync(shell, args, { cwd, env, encoding: "utf8" });
   assert.ifError(result.error);
@@ -65,9 +65,10 @@ test("published skill commands run the bundled checkers from either working dire
   const skills = readInstructions(installedChecker);
   const projects = readInstructions(path.join(shippedSkills, "audit-project-health"));
   const env = { ...process.env, HOME: home, USERPROFILE: home,
-    COLLECTION: fs.realpathSync(collection), PROJECT: fs.realpathSync(project),
+    COLLECTION: fs.realpathSync(collection), CANDIDATE: path.join(defaultRoot, "default-sample"),
+    PROJECT: fs.realpathSync(project),
     PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH };
-  assert.equal(skills.commands.length, 3);
+  assert.equal(skills.commands.length, 4);
   assert.equal(projects.commands.length, 2);
   for (const cwd of [unrelated, project]) {
     const skillReports = skills.commands.map(cmd => run(cmd, cwd, { ...env, CHECKER: skills.checker }));
@@ -76,6 +77,9 @@ test("published skill commands run the bundled checkers from either working dire
     const names = JSON.parse(skillReports[1]).skills.map(s => s.name).sort();
     assert.deepEqual(names, ["audit-agent-skills", "default-sample"]);
     assert.equal(JSON.parse(skillReports[2]).skills[0].name, "explicit-sample");
+    const preview = JSON.parse(skillReports[3]);
+    assert.deepEqual(preview.skills.map(s => s.name).sort(), ["default-sample", "explicit-sample"]);
+    assert.deepEqual(preview.summary.closestPairs[0].names, ["default-sample", "explicit-sample"]);
 
     const projectReports = projects.commands.map(cmd => run(cmd, cwd, { ...env, CHECKER: projects.checker }, 2));
     assert.match(projectReports[0], /Needs attention/);

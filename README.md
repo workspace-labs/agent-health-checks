@@ -60,6 +60,18 @@ node skills/audit-project-health/scripts/audit-project.js --path /absolute/proje
 
 Add `--json` for a machine-readable report. Run either script with `--version` alone to print its release. The [report format](REPORT-FORMAT.md) lists the fields and exit codes for each checker.
 
+The skills checker’s default JSON includes byte counts for the instruction body and frontmatter. Use `--json --include-body` to include their full values. On a default run, **Not checked** lists other skill locations and counts their `SKILL.md` files. A partial count is a lower bound. Only requested roots receive verdicts. To audit a listed location, pass its path with `--root`.
+
+**Before installing a skill**, set `CANDIDATE` to the new skill’s folder and `COLLECTION` to an installed skills folder. Compare them together from the trusted clone.
+
+```bash
+node skills/audit-agent-skills/scripts/audit-skills.js --root "candidate=$CANDIDATE" --root "collection=$COLLECTION" --json
+```
+
+The `--root` options replace all default roots. Add another labelled `--root` for each additional installed folder. A `duplicate-name` finding identifies a name clash. **Closest descriptions** (`summary.closestPairs` in JSON) ranks possible job clashes for a person to judge.
+
+Skills exit codes are **0** after a completed scan with no Broken skill or open command safety finding, **2** for a Broken skill or an open `destructive-command`, `code-execution` or `network-access` finding, and **1** for an unavailable explicit root, zero skills across all explicit roots, invalid usage or checker failure. Standalone help and version exit 0.
+
 The project checker accepts `--path`, `--id`, `--name`, `--profile workspace` and four positive whole-number limits: `--max-files`, `--max-file-bytes`, `--max-total-bytes` and `--max-duration-ms`. Value options accept both a space and an equals sign. Choose a project folder. The checker refuses filesystem roots, the home folder and every ancestor of home. Folders inside home are accepted. The optional workspace profile enables exclusions for the owner's app layout. The default checks those paths as ordinary project content.
 
 Project exit codes are **0** for Healthy or Watch, **2** for Needs attention and **1** for usage errors or an Unavailable report. Standalone help and version exit 0.

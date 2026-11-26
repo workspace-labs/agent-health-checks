@@ -491,3 +491,18 @@ Each Windows job skipped the 16 symbolic-link tests carried forward from 0.7.0 a
 | `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest | Carried forward |
 | `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence | Carried forward |
 | `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding | Carried forward |
+
+### Skills checker noise and options (0.9.0, 2026-11-26)
+
+On macOS, v0.8.0 at `9b1edb8` passed its original 624 tests on Node 20.20.2. Before implementation, 32 tests failed against the released checker with the Step 6 expectations in place. The final suite also exercises hidden links, a shared directory-counting deadline, and Markdown examples that resemble links.
+
+| Node | Command | Passed | Failed | Skipped |
+|---|---|---:|---:|---:|
+| 20.20.2 | `node --test` | 648 | 0 | 0 |
+| 22.23.1 | `node --test` | 648 | 0 | 0 |
+| 24.22.1 | `node --test` | 648 | 0 | 0 |
+| 26.13.1 | `node --test` | 648 | 0 | 0 |
+
+All ten CLI examples were exercised with separate fixture roots. The JSON and CSV data files, early TOC, directly linked nested document, README product names and declared target all produced Universal with exit 0. The three-document chain reported the two indirect references and exited 0. The two review skills stayed Universal and ranked first together. The destructive script kept its finding and exited 2. The empty explicit root exited 1. Controls included a long guide lacking contents, a missing bundled link, an undeclared tool, a harmless script and an unavailable root.
+
+On the same read-only default inventory, both versions judged 84 skills and exited 2. Findings fell from 372 to 231 and unverified references from 147 to 10. The original CLI JSON was 1,359,607 UTF-8 bytes, including 1,075,375 bytes of serialized bodies and frontmatter values. The 0.9.0 CLI emitted 234,907 bytes by default and 1,312,223 with `--include-body`. All 84 full skill objects matched the module output after JSON serialization. The two shipped skills each reported Universal with zero findings. A read-only Workspace project scan with `--profile workspace` retained Watch and all four original finding objects, including their IDs.

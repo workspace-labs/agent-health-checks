@@ -98,7 +98,6 @@ test("absolute and home links and uncertain relative file references receive an 
   assert.deepEqual(findings.filter(f => f.code === "unverified-reference").map(f => [f.axis, f.severity, f.message]), [
     ["structure", "review", "Could not verify reference: /etc/hosts"],
     ["structure", "review", "Could not verify reference: ~/shared/index.md"],
-    ["structure", "review", "Could not verify reference: elsewhere/example.md"],
     ["structure", "review", "Could not verify reference: ../other/notes.md"],
   ]);
   assert.equal(findings.some(f => f.severity === "error"), false);
@@ -121,13 +120,13 @@ test("a reference passing through an external link cannot confirm presence or ab
   ]);
 });
 
-test("an ambiguous instruction operand is a reference while descriptions of another project's layout are examples", t => {
+test("an instruction operand in an absent folder stays quiet alongside descriptions of another project's layout", t => {
   const { scan } = fixture(t, [
     "An application can have files such as `example/a.js` or `sample/other.md`.",
     "The scanner inspects project files in `example/data.csv`.",
     "Read the guide `other/missing.md`.",
   ].join("\n"));
-  assert.deepEqual(referenceFindings(scan()).map(f => f.message), ["Could not verify reference: other/missing.md"]);
+  assert.deepEqual(referenceFindings(scan()), []);
 });
 
 test("the CLI reports both shipped skill guides as Universal", () => {
@@ -176,15 +175,15 @@ test("nested instructions accept present files under either working directory an
   ]);
 });
 
-test("operative absolute and home paths receive review while descriptive install locations stay quiet", t => {
+test("bare absolute and home paths stay quiet while their explicit Markdown links receive review", t => {
   const { scan } = fixture(t, [
     "Open ~/private/guide.md. Read /etc/hosts.",
     "Open `~/private/control.txt`.",
     "Installations commonly live in `~/local/tools`.",
+    "[guide](~/private/guide.md) [hosts](/etc/hosts)",
   ].join("\n"));
   assert.deepEqual(referenceFindings(scan()).map(f => f.message), [
     "Could not verify reference: ~/private/guide.md", "Could not verify reference: /etc/hosts",
-    "Could not verify reference: ~/private/control.txt",
   ]);
 });
 
@@ -209,8 +208,6 @@ test("bare instruction filenames and non-Latin bundled folders include their mis
     "The sources are ملفات/gone.md and ملفات/ok.md.",
   ].join("\n"), { "present.md": "", "paid.csv": "", "ملفات/ok.md": "" });
   assert.deepEqual(referenceFindings(scan()).map(f => [f.code, f.message]), [
-    ["unverified-reference", "Could not verify reference: missing.md"],
-    ["unverified-reference", "Could not verify reference: invoice.csv"],
     ["unverified-reference", "Could not verify reference: ملفات/gone.md"],
   ]);
 });

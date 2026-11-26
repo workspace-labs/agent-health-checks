@@ -4,12 +4,13 @@ The scanner implements a conservative shared contract plus separate Claude and C
 
 ## Shared Agent Skills contract
 
-- A skill is a directory containing `SKILL.md`. An explicit root may be one skill. Collection discovery looks up to three directory levels below the root and records the skill count for each container. The roots report names hidden entries skipped during discovery, including backup and system directories. Discovery skips Git history and Node dependency folders. Empty folders are ignored.
+- A skill is a directory containing `SKILL.md`. An explicit root may be one skill. Collection discovery looks up to three directory levels below the root and records the skill count for each container. The roots report names hidden folders skipped during discovery, including backup and system directories. Discovery skips Git history and Node dependency folders. Empty folders are ignored.
 - YAML frontmatter requires `name` and `description`. The four optional fields are `license`, `compatibility`, `metadata` and `allowed-tools`. The specification limits `compatibility` to 500 characters and marks `allowed-tools` as experimental. The checker names extra top-level fields in one portability note. Keys inside the `metadata` map belong to the author. Checked 2026-11-26 against the [Agent Skills specification](https://agentskills.io/specification#frontmatter).
 - The checker reads commonly used YAML shapes in both skill frontmatter and optional Codex metadata. YAML requires unique mapping keys and spaces for block indentation. A colon followed by a space inside a plain scalar requires quoting or a block scalar. Syntax outside the supported subset receives a review finding. Checked 2026-11-26 against the [YAML 1.2.2](https://yaml.org/spec/1.2.2/).
 - `name` must match the parent directory, use lowercase letters, digits, and hyphens, and avoid leading, trailing, or consecutive hyphens.
 - The body should stay concise and progressively disclose detail through `scripts/`, `references/`, and `assets/`.
-- Markdown links resolve relative to their document. Skill-folder variables and bundle-root paths refer to the installation. Referenced names must match the case on disk. In the skill instructions and optional interface YAML, a missing internal Markdown link or a missing file named under `scripts/`, `references/` or `assets/` is a structural error. Other unresolved references, including links in a README, receive a review finding.
+- Markdown links resolve relative to their document. Skill-folder variables and bundle-root paths refer to the installation. Referenced names must match the case on disk. In the skill instructions and optional interface YAML, a missing internal Markdown link or a missing file named under `scripts/`, `references/` or `assets/` is a structural error. The checker asks for review when a link target, plausible bundle path or path leaving the skill cannot be verified.
+- A Markdown reference reached through another reference should also have a link from the skill instructions. A Markdown reference over 100 lines should have a contents heading or bold contents label in its first 30 lines.
 
 ## Claude profile
 
@@ -27,6 +28,23 @@ The scanner implements a conservative shared contract plus separate Claude and C
 - Product-specific tool names or MCP dependencies can be valid while still reducing portability.
 
 ## Static-analysis boundary
+
+### Agent-specific capabilities
+
+The portability check reads the skill instructions, the optional interface YAML and Markdown under `references/`. It reports the first exact capability name in each file whose target product is undeclared. A `compatibility` field naming either documented host covers a shared name. The list uses distinctive identifiers because common words such as “Read” and “Stop” occur throughout ordinary instructions.
+
+- Claude Code tools include `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `TodoWrite`, `TaskStop`, `ToolSearch` and `WebFetch`. Hooks include `PreSkillShellCommand`, `PostToolUseFailure` and `PostToolBatch`. The checker uses the distinctive compound identifiers from the tools and lifecycle-event tables. It omits names shared with ordinary prose, programs, languages or protocols. Checked 2026-11-26 against the [Claude Code tools reference](https://code.claude.com/docs/en/tools-reference) and [hooks reference](https://code.claude.com/docs/en/hooks).
+- Codex identifiers include `apply_patch`, `exec_command`, `write_stdin`, `update_plan`, `PreModelRequest`, `PostModelRequest` and `request_user_input`. Collaboration tools include `spawn_agent`, `wait_agent`, `followup_task` and the other agent-management calls in the tool definitions. Available tools depend on the session. Checked 2026-11-26 against the [Codex hooks and tool coverage](https://learn.chatgpt.com/docs/hooks#tool-coverage), [OpenAI's Codex collaboration-mode instructions](https://github.com/openai/codex/blob/main/codex-rs/collaboration-mode-templates/templates/default.md) and [Codex collaboration tool definitions](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/handlers/multi_agents_spec.rs).
+- Both hosts document `WebSearch`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `PermissionRequest`, `UserPromptSubmit`, `SessionStart`, `SessionEnd`, `SubagentStart` and `SubagentStop`. Checked 2026-11-26 against the tool and hook references above.
+
+### Description listing budgets
+
+The character totals measure the scanned names and descriptions. Formatting, file paths, model choice and settings can affect the actual listing.
+
+- Claude Code estimates its default listing budget from 1% of the model's context window. A setting can change that fraction or an environment variable can set a character count. Checked 2026-11-26 against [Claude Code skill discovery](https://code.claude.com/docs/en/skills).
+- Codex budgets up to 2% of the context window by default and falls back to 8,000 characters when the window is unknown. Its list also includes file paths. Users can configure a token budget. Checked 2026-11-26 against [OpenAI, Build skills](https://learn.chatgpt.com/docs/build-skills).
+
+### Files and limits
 
 The scanner reads bounded text and metadata. It does not execute scripts, import skill code, call network services, evaluate prompts, or prove that an agent will choose or follow a skill correctly. The report groups linked installs with their in-root target. The file walk skips nested symlinks. An external install link receives a structure finding naming its unchecked target. Unresolved links carry an operating-system error code such as `ENOENT`. Build output and vendor folders use the ordinary scan budget. Dependency and Python cache folders receive findings with unread file counts. Git history is excluded. The scanner checks instruction and interface metadata first, then reports any files left unread by limits. Heuristic findings require human judgment.
 

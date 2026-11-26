@@ -93,7 +93,8 @@ test("different duplicates and likely trigger overlap remain visible", () => {
   const report = scan([a, b]);
   assert.equal(report.skills.filter((s) => s.name === "decision-aid").length, 2);
   assert.ok(report.skills.filter((s) => s.name === "decision-aid").every((s) => s.findings.some((f) => f.code === "duplicate-name")));
-  assert.ok(report.skills.some((s) => s.findings.some((f) => f.code === "trigger-overlap")));
+  assert.deepEqual(report.summary.closestPairs[0].names, ["decision-aid", "option-matrix"]);
+  assert.ok(report.skills.every((s) => s.findings.every((f) => f.code !== "trigger-overlap")));
 });
 
 test("identical mirrors deduplicate while preserving source badges", () => {

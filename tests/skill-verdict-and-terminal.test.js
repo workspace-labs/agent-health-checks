@@ -54,9 +54,10 @@ test("terminal leads with safety, groups repeat codes, prints advice, and counts
   const body = Array.from({ length: 9 }, (_, i) => "[absent](missing-" + i + ".md)").join("\n");
   const root = fixture(t, {
     name: "claude-map", description: "I sort.", fields: ["allowed-tools: Read"],
-    body: body + "\nMaps live under /Users/alice/maps.\napply_patch\n",
+    body: body + "\nMaps live under /Users/alice/maps.\napply_patch\n[index](references/index.md)\n",
     files: {
       "scripts/run.sh": 'rm -rf "$OUT"\n',
+      "references/index.md": "[chart](deeper/chart.md)",
       "references/deeper/chart.md": "text\n".repeat(101),
       "agents/openai.yaml": "unused: true\n",
     },

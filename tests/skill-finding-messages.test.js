@@ -80,9 +80,11 @@ test("skill findings retain their reference, safety and agent profile messages",
   put(skill, "SKILL.md", [
     "---", "name: claude-notes", "description: " + description, "allowed-tools: Read", "---",
     "[outside](../outside.md)", "[absent](missing.md)", "Maps live under /Users/alice", "apply_patch",
+    "[index](references/index.md)",
   ].join("\n"));
   put(skill, "scripts/run.sh", "dd if=source");
   put(skill, "scripts/run.js", "eval(command); fetch(url);");
+  put(skill, "references/index.md", "[notes](extra/notes.md)");
   put(skill, "references/extra/notes.md", "text\n".repeat(101));
   put(skill, "agents/openai.yaml", "default_prompt: Read notes\ndependencies:\n  - type: sample\n");
   check(scan(root)[0], {
@@ -90,7 +92,7 @@ test("skill findings retain their reference, safety and agent profile messages",
     "allowed-tools-extension": "The Agent Skills specification marks allowed-tools as experimental",
     "unverified-reference": "Could not verify reference: ../outside.md",
     "broken-reference": "Referenced file does not exist: missing.md",
-    "deep-reference": "Reference is nested more than one level: references/extra/notes.md",
+    "deep-reference": "Reference is reachable only through another reference: references/extra/notes.md",
     "reference-no-toc": "Long reference has no contents section: references/extra/notes.md",
     "personal-path": "Machine- or workspace-specific path found: /Users/alice",
     "model-specific-tool": "Model-specific capability found: apply_patch",
@@ -104,18 +106,17 @@ test("skill findings retain their reference, safety and agent profile messages",
   });
 });
 
-test("skill findings retain their duplicate-name and trigger-overlap messages", t => {
+test("duplicate-name keeps its message and matching descriptions appear in the summary", t => {
   const first = temp(t), second = temp(t);
   put(first, "swatches/SKILL.md", guide("swatches"));
   put(second, "swatches/SKILL.md", guide("swatches", description, "Read the chart."));
   put(first, "palette/SKILL.md", guide("palette"));
-  const { skills } = auditSkillRoots({ roots: [first, second] });
-  const shared = "Likely trigger overlap with 'swatches' (100% token overlap)";
+  const { skills, summary } = auditSkillRoots({ roots: [first, second] });
+  assert.deepEqual(summary.closestPairs, [{ names: ["palette", "swatches"], score: 1 }]);
   assert.equal(skills.length, 3);
   for (const skill of skills) {
-    check(skill, skill.name === "palette" ? { "trigger-overlap": [shared, shared] } : {
+    check(skill, skill.name === "palette" ? {} : {
       "duplicate-name": "2 different skills share the name 'swatches'",
-      "trigger-overlap": "Likely trigger overlap with 'palette' (100% token overlap)",
     });
   }
 });

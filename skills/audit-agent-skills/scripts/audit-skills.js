@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { isUtf8 } = require("node:buffer");
 
 const AXES = ["structure", "triggers", "safety", "portability", "claude", "codex"];
-const CHECKER_VERSION = "0.8.0";
+const CHECKER_VERSION = "0.9.0";
 const DEFAULT_LIMITS = Object.freeze({ maxFiles: 320, maxFileBytes: 1024 * 1024, maxTotalBytes: 6 * 1024 * 1024 });
 const BINARY_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".pdf", ".zip", ".gz", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov"]);
 const UNREAD_DIRS = new Set(["node_modules", "__pycache__"]);
@@ -435,9 +435,47 @@ function textTokens(value) {
 function overlapScore(a, b) {
   const aa = textTokens(a), bb = textTokens(b);
   if (aa.size < 3 || bb.size < 3) return 0;
+  return sharedWordScore(aa, bb);
+}
+
+function sharedWordScore(aa, bb) {
+  if (!aa.size || !bb.size) return 0;
   let both = 0;
   for (const token of aa) if (bb.has(token)) both++;
   return both / Math.min(aa.size, bb.size);
+}
+
+const EVERYDAY_WORDS = new Set(("a an and are as at be before by can do does for from had has have how if in into is it " +
+  "not of on or other our per that the their them then there these they this those to use used uses using was we when " +
+  "whenever where which who will with without would you your ask asks asked request requested skill skills user users agent agents").split(" "));
+
+function closestDescriptions(skills) {
+  const descriptions = skills.filter(skill => skill.description).map(({ name, description }) => {
+    const words = description.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) || [];
+    return { name, words: new Set(words.filter(word => !EVERYDAY_WORDS.has(word))) };
+  }).sort((a, b) => comparePath(a.name, b.name));
+  const best = [];
+  function order(a, b) {
+    return b.score - a.score || comparePath(a.names[0], b.names[0]) || comparePath(a.names[1], b.names[1]);
+  }
+  for (let i = 0; i < descriptions.length; i++) {
+    const a = descriptions[i];
+    for (let j = i + 1; j < descriptions.length; j++) {
+      const b = descriptions[j];
+      if (a.name === b.name) continue;
+      const pair = { names: [a.name, b.name], score: sharedWordScore(a.words, b.words) };
+      if (best.length === 5 && order(pair, best[4]) >= 0) continue;
+      const previous = best.findIndex(item => item.names[0] === a.name && item.names[1] === b.name);
+      if (previous >= 0) {
+        if (best[previous].score >= pair.score) continue;
+        best.splice(previous, 1);
+      }
+      best.push(pair);
+      best.sort(order);
+      if (best.length > 5) best.pop();
+    }
+  }
+  return best;
 }
 
 function escapedMarkdown(text, at) {
@@ -490,16 +528,18 @@ function inlineCodeLookup(lines) {
 
 // Markdown destinations use the containing document. Instruction paths beginning with a
 // bundled folder or the skill-directory variable use the skill's installation directory.
+const markdownFile = name => /\.(?:md|markdown)$/i.test(name);
+
 function referencesIn(file, bundleFolders) {
   const refs = new Map();
   const yaml = file.rel === "agents/openai.yaml";
-  if (!yaml && !/\.md$/i.test(file.rel)) return refs.values();
+  if (!yaml && !markdownFile(file.rel)) return refs.values();
   const entryDocument = yaml || file.rel === "SKILL.md";
   const variable = "${CLAUDE_SKILL_DIR}/";
   let fence = "";
   let shell = false;
   const lines = file.text.split(/\r?\n/);
-  const inCode = entryDocument && inlineCodeLookup(lines);
+  const inCode = inlineCodeLookup(lines);
   let resumeLine = -1, resumeColumn = 0;
   for (let i = 0; i < lines.length; i++) {
     if (i < resumeLine) continue;
@@ -538,16 +578,21 @@ function referencesIn(file, bundleFolders) {
       const base = yaml || anchored || (!link && bundled) ? "." : path.posix.dirname(file.rel);
       const tryRoot = !link && !absolute && base !== "." && target.startsWith("./");
       const certain = conventional || (entryDocument && kind === "markdown");
-      const ref = { value, target, base, absolute, tryRoot, certain, line: i + 1 };
+      const parts = target.replace(/^(?:\.\/)+/, "").split("/");
+      const bundlePath = parts.length > 1 && (bundleFolders.has(parts[0]) || ["scripts", "references", "assets"].includes(parts[0]));
+      const leavesSkill = !absolute && path.posix.join(base, target).startsWith("../");
+      const reviewable = kind === "markdown" || kind === "html" || anchored || bundlePath || leavesSkill;
+      const ref = { value, target, base, absolute, tryRoot, certain, reviewable, kind, line: i + 1 };
       const identity = JSON.stringify([ref.line, base, target]);
-      if (!refs.has(identity) || ref.certain) refs.set(identity, ref);
+      const prior = refs.get(identity);
+      if (!prior || ref.certain || (!prior.certain && ref.reviewable && !prior.reviewable)) refs.set(identity, ref);
     }
 
     // Consume a whole link (including its label and title) once. Recognize balanced
     // parentheses in unquoted destinations, and spaces in angle-bracket destinations.
-    function linkKind(column) {
+    function linkKind(column, syntax = "markdown") {
       const indented = !continuation && !yaml && /^(?: {4}|\t)/.test(line);
-      return fence || indented || escapedMarkdown(line, column) || (inCode && inCode(i, column)) ? "example" : "markdown";
+      return fence || indented || escapedMarkdown(line, column) || inCode(i, column) ? "example" : syntax;
     }
     const destination = /^(?:<([^>]+)>|((?:\\.|[^()\s\\]|\((?:\\.|[^()\\])*\))+))/;
     const definition = !continuation && !yaml && line.match(/^\s{0,3}\[[^\]]+\]:\s*(.*)$/);
@@ -568,7 +613,7 @@ function referencesIn(file, bundleFolders) {
         const wanted = match[4].toLowerCase() === "img" ? "src" : "href";
         const attributes = /\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>]+)))?/g;
         for (const attr of match[5].matchAll(attributes)) {
-          if (attr[1].toLowerCase() === wanted) add(attr[2] || attr[3] || attr[4] || "", "html");
+          if (attr[1].toLowerCase() === wanted) add(attr[2] || attr[3] || attr[4] || "", linkKind(match.index, "html"));
         }
       } else if (match[2] !== undefined) {
         if (fence) continue;
@@ -601,7 +646,7 @@ function referencesIn(file, bundleFolders) {
         }
       } else if (match[1] !== undefined) {
         // A closing tick from a multiline span can precede another inline span.
-        if (inCode && inCode(i, match.index) !== "opening") {
+        if (inCode(i, match.index) !== "opening") {
           token.lastIndex = match.index + 1;
           continue;
         }
@@ -802,6 +847,8 @@ function referenceInspector(skillDir) {
   // Cache only directory entries. Each segment must match case, even on a volume
   // where asking the OS for a wrong-case path would succeed.
   const directories = new Map();
+  const unknown = { state: "unknown" };
+  const missing = { state: "missing" };
   function entries(dir) {
     if (!directories.has(dir)) {
       try { directories.set(dir, new Map(fs.readdirSync(dir, { withFileTypes: true }).map(entry => [entry.name, entry]))); }
@@ -818,11 +865,11 @@ function referenceInspector(skillDir) {
     let target = ref.target;
     if (ref.absolute) {
       if (target.startsWith("~/")) target = path.join(os.homedir(), target.slice(2));
-      if (!path.isAbsolute(target) || !inside(skillDir, target)) return "unknown";
+      if (!path.isAbsolute(target) || !inside(skillDir, target)) return unknown;
       target = path.relative(skillDir, target).split(path.sep).join("/");
       start = skillDir;
     }
-    if (!inside(skillDir, path.resolve(start, target))) return "unknown";
+    if (!inside(skillDir, path.resolve(start, target))) return unknown;
     let parts = target.split("/");
     let links = 0;
     for (let i = 0; i < parts.length; i++) {
@@ -830,32 +877,64 @@ function referenceInspector(skillDir) {
       if (!part || part === ".") continue;
       if (part === "..") {
         start = path.dirname(start);
-        if (!inside(skillDir, start)) return "unknown";
+        if (!inside(skillDir, start)) return unknown;
         continue;
       }
       const names = entries(start);
-      if (!names) return "unknown";
+      if (!names) return unknown;
       const entry = names.get(part);
-      if (!entry) return "missing";
+      if (!entry) return missing;
       const current = path.join(start, part);
       if (entry.isSymbolicLink()) {
-        if (++links > 40) return "unknown";
+        if (++links > 40) return unknown;
         let link;
-        try { link = fs.readlinkSync(current); } catch { return "unknown"; }
-        if (!inside(skillDir, path.resolve(start, link))) return "unknown";
+        try { link = fs.readlinkSync(current); } catch { return unknown; }
+        if (!inside(skillDir, path.resolve(start, link))) return unknown;
         if (path.isAbsolute(link)) { link = path.relative(skillDir, link); start = skillDir; }
         parts = [...link.split(path.sep), ...parts.slice(i + 1)];
         i = -1;
       } else {
-        if (i + 1 < parts.length && !entry.isDirectory()) return "missing";
-        if (!entry.isFile() && !entry.isDirectory()) return "unknown";
-        if (i + 1 < parts.length && part === ".git") return "unknown";
+        if (i + 1 < parts.length && !entry.isDirectory()) return missing;
+        if (!entry.isFile() && !entry.isDirectory()) return unknown;
+        if (i + 1 < parts.length && part === ".git") return unknown;
         start = current;
       }
     }
-    return "present";
+    return { state: "present", relative: path.relative(skillDir, start).split(path.sep).join("/") };
   }
   return { bundleFolders, inspect };
+}
+
+function needsContents(text) {
+  const lines = text.split(/\r?\n/, 102);
+  if (lines.length <= 100 || (lines.length === 101 && lines[100] === "")) return false;
+  const label = /^(?:contents|table of contents|toc|on this page|in this file):?$/i;
+  let fence = "";
+  for (let i = 0; i < 30; i++) {
+    const line = lines[i];
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (delimiter) {
+      if (!fence) fence = delimiter[1];
+      else if (delimiter[1].startsWith(fence) && !delimiter[2].trim()) fence = "";
+      continue;
+    }
+    if (fence) continue;
+    const atx = /^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/.exec(line);
+    const bold = /^ {0,3}(\*\*|__)(.+?)\1:?[ \t]*$/.exec(line);
+    if (atx && label.test(atx[1]) || bold && label.test(bold[2])) return false;
+    if (i < 29 && label.test(line.trim()) && /^ {0,3}(?:=+|-+)[ \t]*$/.test(lines[i + 1])) return false;
+  }
+  return true;
+}
+
+function indirectReferences(links) {
+  const direct = links.get("SKILL.md") || new Set();
+  const reachable = new Set(["SKILL.md", ...direct]);
+  // Set iteration visits newly added destinations once, even in a cycle.
+  for (const file of reachable) {
+    for (const target of links.get(file) || []) reachable.add(target);
+  }
+  return [...reachable].filter(file => file !== "SKILL.md" && !direct.has(file)).sort(comparePath);
 }
 
 const SHARED_FIELDS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
@@ -892,6 +971,42 @@ function checkFrontmatterFields(parsed, description, findings) {
       "Claude uploads reject angle brackets in the description. Claude Code accepts them and displays &lt; and &gt;.",
       "SKILL.md", lines.description, "Use square brackets or plain text in the description."));
   }
+}
+
+// Exact capability identifiers. Common verbs such as Read and Stop also occur
+// in ordinary instructions, so they cannot identify a product from prose.
+const CLAUDE_CAPABILITIES = [
+  "AskUserQuestion", "CronCreate", "CronDelete", "CronList", "EndConversation", "EnterPlanMode",
+  "EnterWorktree", "ExitPlanMode", "ExitWorktree", "ListAgents", "ListMcpResourcesTool",
+  "ListPlugins", "ListSkills", "NotebookEdit", "propose_skills", "PushNotification",
+  "ReadMcpResourceTool", "RemoteTrigger", "ReportFindings", "ScheduleWakeup", "SearchPlugins",
+  "SearchSkills", "SendFeedback", "SendMessage", "SendUserFile", "ShareOnboardingGuide",
+  "SubagentHandback", "SuggestPluginInstall", "SuggestSkills", "TaskCreate", "TaskGet",
+  "TaskList", "TaskOutput", "TaskStop", "TaskUpdate", "TodoWrite", "ToolSearch", "WaitForMcpServers",
+  "WebFetch", "UserPromptExpansion", "PreSkillShellCommand", "PermissionDenied", "PostToolBatch",
+  "PostToolUseFailure", "MessageDisplay", "TaskCreated", "TaskCompleted", "StopFailure",
+  "TeammateIdle", "InstructionsLoaded", "ConfigChange", "CwdChanged", "DirectoryAdded",
+  "FileChanged", "WorktreeCreate", "WorktreeRemove", "PreModelSwitch", "PostModelSwitch", "ElicitationResult",
+];
+const CODEX_CAPABILITIES = [
+  "request_user_input", "apply_patch", "exec_command", "write_stdin", "update_plan",
+  "spawn_agent", "send_input", "send_message", "followup_task", "resume_agent", "wait_agent",
+  "list_agents", "close_agent", "interrupt_agent", "PreModelRequest", "PostModelRequest",
+];
+const SHARED_CAPABILITIES = [
+  "PreToolUse", "PostToolUse", "PreCompact", "PostCompact", "PermissionRequest",
+  "UserPromptSubmit", "SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "WebSearch",
+];
+
+function undeclaredCapabilities(compatibility) {
+  const claude = /\bclaude\b/i.test(compatibility);
+  const codex = /\bcodex\b/i.test(compatibility);
+  if (claude && codex) return null;
+  const names = [];
+  if (!claude) names.push(...CLAUDE_CAPABILITIES);
+  if (!codex) names.push(...CODEX_CAPABILITIES);
+  if (!claude && !codex) names.push(...SHARED_CAPABILITIES);
+  return new RegExp("\\b(?:" + names.join("|") + ")\\b");
 }
 
 function auditCandidate(candidate, limits) {
@@ -932,29 +1047,43 @@ function auditCandidate(candidate, limits) {
     checkFrontmatterFields(parsed, description, findings);
   }
 
+  const capabilities = undeclaredCapabilities(scalar(fm.compatibility));
   const inspector = referenceInspector(dirReal);
-  for (const file of collected.files.filter((f) => !f.binary && !f.skipped)) {
+  const readableFiles = collected.files.filter(f => !f.binary && !f.skipped);
+  const links = new Map(readableFiles.filter(f => markdownFile(f.rel)).map(f => [f.rel, new Set()]));
+  for (const file of readableFiles) {
     for (const ref of referencesIn(file, inspector.bundleFolders)) {
-      let state = inspector.inspect(ref);
-      if (ref.tryRoot && state !== "present") {
+      let result = inspector.inspect(ref);
+      if (ref.tryRoot && result.state !== "present") {
         const alternative = inspector.inspect({ ...ref, base: "." });
-        if (state === "missing" || alternative === "present") state = alternative;
+        if (result.state === "missing" || alternative.state === "present") result = alternative;
       }
-      if (state === "present") continue;
-      if (state === "missing" && ref.certain) findings.push(finding("structure", "error", "broken-reference", `Referenced file does not exist: ${ref.value}`, file.rel, ref.line, "Add the file or correct the relative path."));
-      else findings.push(finding("structure", "review", "unverified-reference", `Could not verify reference: ${ref.value}`, file.rel, ref.line, "Confirm the intended location before changing this reference."));
+      if (result.state === "present") {
+        if (ref.kind !== "example" && links.has(result.relative)) links.get(file.rel)?.add(result.relative);
+        continue;
+      }
+      // The .markdown extension participates in layout advice only.
+      if (/\.markdown$/i.test(file.rel)) continue;
+      if (result.state === "missing" && ref.certain) findings.push(finding("structure", "error", "broken-reference", `Referenced file does not exist: ${ref.value}`, file.rel, ref.line, "Add the file or correct the relative path."));
+      else if (ref.reviewable) findings.push(finding("structure", "review", "unverified-reference", `Could not verify reference: ${ref.value}`, file.rel, ref.line, "Confirm the intended location before changing this reference."));
     }
-    if (file.rel.startsWith("references/") && file.rel.split("/").length > 2) findings.push(finding("structure", "review", "deep-reference", `Reference is nested more than one level: ${file.rel}`, file.rel, 1, "Keep references shallow so agents can discover them reliably."));
-    if (file.rel.startsWith("references/") && file.text.split(/\r?\n/).length > 100 && !/^#{1,3}\s+(?:contents|table of contents)\b/im.test(file.text)) findings.push(finding("structure", "review", "reference-no-toc", `Long reference has no contents section: ${file.rel}`, file.rel, 1, "Add a short table of contents near the top."));
+    if (file.rel.startsWith("references/") && markdownFile(file.rel) && needsContents(file.text)) findings.push(finding("structure", "review", "reference-no-toc", `Long reference has no contents section: ${file.rel}`, file.rel, 1, "Add a short table of contents near the top."));
 
     const personal = personalPath(file);
     if (personal) findings.push(finding("portability", "review", "personal-path", `Machine- or workspace-specific path found: ${personal.text}`, file.rel, personal.line, "Parameterize the path or label the skill as workspace-specific."));
-    const modelTool = file.text.match(/\b(?:AskUserQuestion|request_user_input|apply_patch|PreToolUse|Claude Code|Codex CLI)\b/);
-    if (modelTool && file.rel !== "scripts/audit-skills.js") findings.push(finding("portability", "review", "model-specific-tool", `Model-specific capability found: ${modelTool[0]}`, file.rel, lineOf(file.text, modelTool[0]), "Document the target agent and offer an equivalent fallback where practical."));
+    if (capabilities && (file.rel === "SKILL.md" || file.rel === "agents/openai.yaml" ||
+        (file.rel.startsWith("references/") && /\.(?:md|markdown)$/i.test(file.rel)))) {
+      const match = capabilities.exec(file.text);
+      if (match) findings.push(finding("portability", "review", "model-specific-tool", `Model-specific capability found: ${match[0]}`, file.rel, file.text.slice(0, match.index).split("\n").length, "Document the target agent and offer an equivalent fallback where practical."));
+    }
     const { destructive, execution, network } = contentSafety(file);
     if (destructive) findings.push(finding("safety", "review", "destructive-command", "Potentially destructive command appears in skill content", file.rel, destructive.line, "Confirm it is defensive documentation; otherwise remove it or require explicit human approval."));
     if (execution) findings.push(finding("safety", "review", "code-execution", `Bundled code contains an execution primitive: ${execution.text}`, file.rel, execution.line, "Audit the call path and inputs manually; static inspection cannot prove it safe."));
     if (network) findings.push(finding("safety", "review", "network-access", `Potential network access found: ${network.text}`, file.rel, network.line, "Verify destinations, data exposure, and user approval requirements."));
+  }
+
+  for (const file of indirectReferences(links)) {
+    findings.push(finding("structure", "review", "deep-reference", `Reference is reachable only through another reference: ${file}`, file, 1, "Keep references shallow so agents can discover them reliably."));
   }
 
   const openai = collected.files.find((f) => f.rel === "agents/openai.yaml" && !f.binary && !f.skipped);
@@ -996,7 +1125,7 @@ function auditCandidate(candidate, limits) {
     name, folder, description, body: parsed.body.trim(), frontmatter: fm,
     digest, fileCount: collected.files.length, totalBytes: collected.totalBytes,
     sources: [source], findings, axes, status: "Needs review", statusKey: "review",
-    _descriptionForOverlap: description, _dirReal: dirReal,
+    _dirReal: dirReal,
   };
 }
 
@@ -1014,7 +1143,6 @@ function finalizeStatus(skill) {
   const rank = { error: 0, review: 1, info: 2 };
   skill.findings.sort((a, b) => (rank[a.severity] - rank[b.severity]) || AXES.indexOf(a.axis) - AXES.indexOf(b.axis) || comparePath(a.file, b.file) || a.line - b.line);
   skill.counts = { errors: skill.findings.filter((f) => f.severity === "error").length, review: skill.findings.filter((f) => f.severity !== "error").length };
-  delete skill._descriptionForOverlap;
   delete skill._dirReal;
   return skill;
 }
@@ -1052,6 +1180,11 @@ function discoveryDirectory(name) {
   return !name.startsWith(".") && name !== "node_modules";
 }
 
+function isFolder(entry, file) {
+  if (!entry.isSymbolicLink()) return entry.isDirectory();
+  try { return fs.statSync(file).isDirectory(); } catch { return false; }
+}
+
 function discoverInstalls(context, add, links) {
   const { root, real, entries, report } = context;
   if (hasGuide(entries)) {
@@ -1074,7 +1207,7 @@ function discoverInstalls(context, add, links) {
     }
     for (const entry of children) {
       if (entry.name.startsWith(".") && (entry.isDirectory() || entry.isSymbolicLink())) {
-        recordHidden(path.join(dir, entry.name));
+        if (isFolder(entry, path.join(realDir, entry.name))) recordHidden(path.join(dir, entry.name));
       } else if (!entry.isDirectory()) {
         result.populated = true;
       } else if (depth < 3 && discoveryDirectory(entry.name)) {
@@ -1086,7 +1219,7 @@ function discoverInstalls(context, add, links) {
   for (const entry of entries) {
     const dir = path.join(root.path, entry.name);
     if (entry.name.startsWith(".")) {
-      recordHidden(dir);
+      if (isFolder(entry, dir)) recordHidden(dir);
       continue;
     }
     if (!discoveryDirectory(entry.name)) continue;
@@ -1107,6 +1240,75 @@ function discoverInstalls(context, add, links) {
   if (report.notSearched) report.notSearched.sort(comparePath);
 }
 
+function countSkillNames(folder, deadline) {
+  let count = 0, partial = false;
+  const pending = [folder];
+  while (pending.length && Date.now() < deadline) {
+    let directory;
+    try {
+      directory = fs.opendirSync(pending.pop());
+      while (Date.now() < deadline) {
+        const entry = directory.readSync();
+        if (!entry) break;
+        if (entry.isDirectory()) pending.push(path.join(directory.path, entry.name));
+        else if (entry.isFile() && entry.name === "SKILL.md") count++;
+      }
+      if (Date.now() >= deadline) partial = true;
+    } catch {
+      partial = true;
+    } finally {
+      if (directory) directory.closeSync();
+    }
+  }
+  return { count, partial: partial || pending.length > 0 };
+}
+
+function uncheckedLocations(contexts) {
+  const deadline = Date.now() + 1600;
+  const locations = new Map();
+  const checkedRoots = new Set(contexts.map(context => context.real).filter(Boolean));
+  function add(folder, kind) {
+    if (locations.has(folder)) return;
+    let entry;
+    try {
+      entry = fs.lstatSync(folder);
+      if (!isFolder(entry, folder) || checkedRoots.has(fs.realpathSync(folder))) return;
+    } catch { return; }
+    // A linked directory is a visible location, but its target is outside this walk.
+    const result = entry.isSymbolicLink() ? { count: 0, partial: true } : countSkillNames(folder, deadline);
+    locations.set(folder, { path: displayPath(folder), kind, ...result });
+  }
+  for (const { root, entries } of contexts) {
+    for (const entry of entries || []) {
+      if (entry.name.startsWith(".") && (entry.isDirectory() || entry.isSymbolicLink())) {
+        add(path.join(root.path, entry.name), "hidden");
+      }
+    }
+  }
+  add(path.join(os.homedir(), ".claude", "plugins"), "plugin");
+  for (const name of [".claude", ".agents"]) add(path.join(process.cwd(), name, "skills"), "project");
+  for (const name of [".gemini", ".cursor", ".copilot", ".config/opencode"]) add(path.join(os.homedir(), name, "skills"), "other-agent");
+  return Array.from(locations.values()).sort((a, b) => comparePath(a.path, b.path));
+}
+
+function descriptionCharacters(skills, contexts) {
+  const agentRoots = new Map(defaultRoots().map(root => [displayPath(root.path), root.id === "claude" ? "claude" : "codex"]));
+  if (!contexts.some(context => agentRoots.has(context.report.path))) return;
+  const totals = { claude: 0, codex: 0 };
+  for (const skill of skills) {
+    const length = Array.from(scalar(skill.frontmatter.name) + skill.description).length;
+    const seen = new Set();
+    for (const source of skill.sources) {
+      const agent = agentRoots.get(source.root);
+      if (agent && !seen.has(source.path)) {
+        totals[agent] += length;
+        seen.add(source.path);
+      }
+    }
+  }
+  return totals;
+}
+
 function refusedLink(context, dir, target, errorCode) {
   const { root } = context;
   const folder = path.basename(dir);
@@ -1121,7 +1323,7 @@ function refusedLink(context, dir, target, errorCode) {
     fileCount: 0, totalBytes: 0, sources: [sourceLocation(root, dir)],
     findings: [finding(axis, "review", code, message, "SKILL.md", 1, "Place the skill inside the declared root or audit the linked target separately.")],
     axes: { structure: "review", triggers: "pass", safety: errorCode ? "review" : "pass", portability: "pass", claude: "pass", codex: "pass" },
-    status: "Needs review", statusKey: "review", _descriptionForOverlap: "", _dirReal: "",
+    status: "Needs review", statusKey: "review", _dirReal: "",
   };
 }
 
@@ -1241,16 +1443,6 @@ function auditSkillRoots(options = {}) {
     skill.findings.push(finding("portability", "review", "duplicate-name", `${count} different skills share the name '${name}'`, "SKILL.md", 1, "Rename or consolidate the conflicting implementations."));
     skill.axes.portability = "review";
   }
-  for (let i = 0; i < unique.length; i++) for (let j = i + 1; j < unique.length; j++) {
-    if (unique[i].name === unique[j].name) continue;
-    const score = overlapScore(unique[i]._descriptionForOverlap, unique[j]._descriptionForOverlap);
-    if (score < 0.72) continue;
-    for (const [a, b] of [[unique[i], unique[j]], [unique[j], unique[i]]]) {
-      a.findings.push(finding("triggers", "review", "trigger-overlap", `Likely trigger overlap with '${b.name}' (${Math.round(score * 100)}% token overlap)`, "SKILL.md", 1, "Make each description's invocation boundary more specific."));
-      a.axes.triggers = "review";
-    }
-  }
-
   for (const skill of unique) {
     finalizeStatus(skill);
     const worst = worstCopy.get(skill);
@@ -1259,6 +1451,11 @@ function auditSkillRoots(options = {}) {
   unique.sort((a, b) => (statusRank[a.statusKey] - statusRank[b.statusKey]) || comparePath(a.name, b.name) || comparePath(a.digest, b.digest));
   const statuses = { universal: 0, claude: 0, codex: 0, workspace: 0, review: 0, broken: 0 };
   unique.forEach(skill => { statuses[skill.statusKey]++; });
+  const summary = { skills: unique.length, mirrors, findings: unique.reduce((n, s) => n + s.findings.length, 0), statuses };
+  const pairs = closestDescriptions(unique);
+  if (pairs.length) summary.closestPairs = pairs;
+  const characters = descriptionCharacters(unique, contexts);
+  if (characters) summary.descriptionCharacters = characters;
   return {
     schemaVersion: 1,
     checkerVersion: CHECKER_VERSION,
@@ -1266,16 +1463,18 @@ function auditSkillRoots(options = {}) {
     readOnly: true,
     disclaimer: "Static contract evidence only — no scripts executed, no network used, and no runtime behavior guaranteed.",
     roots: contexts.map(context => context.report),
-    summary: { skills: unique.length, mirrors, findings: unique.reduce((n, s) => n + s.findings.length, 0), statuses },
+    ...(!options.roots?.length ? { coverage: uncheckedLocations(contexts) } : {}),
+    summary,
     skills: unique,
   };
 }
 
 function parseCli(argv) {
   const roots = [];
-  let json = false;
+  let json = false, includeBody = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--json") json = true;
+    else if (argv[i] === "--include-body") includeBody = true;
     else if (argv[i] === "--version") return { version: true };
     else if (argv[i] === "--root") {
       const spec = argv[++i];
@@ -1289,7 +1488,15 @@ function parseCli(argv) {
     } else if (argv[i] === "--help" || argv[i] === "-h") return { help: true };
     else throw new Error(`Unknown option: ${argv[i]}`);
   }
-  return { roots, json };
+  return { roots, json, includeBody };
+}
+
+function compactSkill({ body, frontmatter, ...skill }) {
+  return {
+    ...skill,
+    bodyBytes: Buffer.byteLength(body),
+    frontmatterBytes: Buffer.byteLength(JSON.stringify(frontmatter)),
+  };
 }
 
 // Escape individual output lines before adding the renderer's own line breaks.
@@ -1328,10 +1535,24 @@ function printHuman(report, explicitRoots) {
       if (root.notSearched) console.log(terminalText(`  not searched: ${root.notSearched.join(", ")}`));
     }
   }
+  if (report.coverage?.length) {
+    console.log("Not checked");
+    for (const entry of report.coverage) {
+      console.log(terminalText(`  ${entry.path} (${entry.kind}): ${entry.count} SKILL.md${entry.partial ? " (partial count)" : ""}`));
+    }
+  }
   const s = report.summary.statuses;
   console.log(`Skill Doctor — ${report.summary.skills} unique skills (${report.summary.mirrors} identical mirrors)`);
   console.log(`Universal ${s.universal} · Claude-ready ${s.claude} · Codex-ready ${s.codex} · Workspace-specific ${s.workspace} · Needs review ${s.review} · Broken ${s.broken}`);
   console.log(report.disclaimer);
+  const characters = report.summary.descriptionCharacters;
+  if (characters) console.log(`Description characters — Claude ${characters.claude} (1% of context window estimate) · Codex ${characters.codex} (2% of context window, 8,000 characters when unknown, estimate)`);
+  if (report.summary.closestPairs) {
+    console.log("Closest descriptions");
+    for (const { names, score } of report.summary.closestPairs) {
+      console.log(terminalText(`  ${names[0]} / ${names[1]} — ${(score * 100).toFixed(1)}%`));
+    }
+  }
   for (const skill of report.skills) {
     console.log("");
     console.log(terminalText(`${skill.status.padEnd(18)} ${skill.name}  [${skill.sources.map(source => source.isLink ? source.label + " (link)" : source.label).join(", ")}]`));
@@ -1347,13 +1568,21 @@ if (require.main === module) {
       process.exit(0);
     }
     if (cli.help) {
-      console.log("Usage: node scripts/audit-skills.js [--json] [--root label=/absolute/path]");
+      console.log("Usage: node scripts/audit-skills.js [--json [--include-body]] [--root label=/absolute/path]...");
+      console.log("Exit 0: completed without Broken skills or open command safety findings. Help and version also exit 0.");
+      console.log("Exit 2: a Broken skill or an open destructive-command, code-execution or network-access finding.");
+      console.log("Exit 1: unavailable explicit root, zero skills across explicit roots, invalid usage or checker failure.");
       process.exit(0);
     }
     const report = auditSkillRoots({ roots: cli.roots });
-    if (cli.json) process.stdout.write(JSON.stringify(report, null, 2) + "\n"); else printHuman(report, cli.roots.length > 0);
-    const rootError = cli.roots.length > 0 && report.roots.some(root => root.state !== "read");
-    process.exitCode = rootError ? 1 : report.summary.statuses.broken ? 2 : 0;
+    if (cli.json) {
+      const output = cli.includeBody ? report : { ...report, skills: report.skills.map(compactSkill) };
+      process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+    } else printHuman(report, cli.roots.length > 0);
+    const rootError = cli.roots.length > 0 && (report.summary.skills === 0 || report.roots.some(root => root.state !== "read"));
+    const commandSafety = new Set(["destructive-command", "code-execution", "network-access"]);
+    const needsAttention = report.summary.statuses.broken || report.skills.some(skill => skill.findings.some(f => commandSafety.has(f.code)));
+    process.exitCode = rootError ? 1 : needsAttention ? 2 : 0;
   } catch (error) {
     console.error(terminalText(`Skill Doctor failed: ${error.message}`));
     process.exitCode = 1;

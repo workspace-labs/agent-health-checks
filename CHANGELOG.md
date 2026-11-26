@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.9.0] - 2026-11-26
+
+- The default skills scan lists other installed locations under **Not checked**, counts filenames without opening skill files there, and marks incomplete counts. Hidden regular files no longer appear in `notSearched`. Only requested roots receive verdicts.
+- Long-reference contents advice now checks Markdown documents over 100 lines for a contents heading or bold label in the first 30 lines. The `deep-reference` finding now says `Reference is reachable only through another reference: <file>`. It follows links from the guide so that directly linked files can live in nested folders.
+- Portability notes cover documented tool and hook identifiers in the instructions, interface YAML and Markdown references. A declared compatible product covers its identifiers. References to a product by name and ordinary filenames in prose previously produced unnecessary warnings. Missing bundled references retain their structural findings.
+- Removed the `trigger-overlap` finding and its status effect before 1.0.0. **Closest descriptions** ranks up to five pairs for human review. The terminal also shows the character totals for the observed Claude and Codex installations and their estimated listing budgets.
+- A completed skills scan now exits 2 for an open `destructive-command`, `code-execution` or `network-access` finding as well as a Broken skill. Explicit roots containing zero skills now exit 1. Clean scans and scans with other review findings still exit 0. Invalid usage, an unavailable explicit root and failures exit 1. Help and version exit 0.
+- The default skills CLI JSON omits bodies and frontmatter values to keep the report small. It keeps their UTF-8 byte counts and the original digest. Use `--json --include-body` for complete values. The module still returns both for the Workspace Skills page.
+- Both skill descriptions specify the static read-only checks and their limits. The skills guide and README now show how to compare a candidate with installed skills before installation.
+
+### Existing test expectations changed in 0.9.0
+
+The names below identify the tests as published in 0.8.0.
+
+| Existing test | Reason for the change |
+|---|---|
+| `root header and JSON name hidden entries while visible container skills are audited` | K1 removes the regular file `.DS_Store` from the hidden-folder list. |
+| `skill findings retain their reference, safety and agent profile messages` | K2 adds a genuine indirect link and pins its new message. All other messages retain their expectations. |
+| `terminal leads with safety, groups repeat codes, prints advice, and counts omitted findings` | K2 uses a genuinely indirect link to preserve the terminal fixture's 20 findings. |
+| `a caller's build command receives review in SKILL.md` | K4 drops the caller's bare build command. |
+| `agents/openai.yaml distinguishes conventional asset paths from other icon paths` | K4 supplies an existing icons folder for the unresolved icon control. |
+| `absolute and home links and uncertain relative file references receive an exact review note` | K4 keeps actual links and drops the text operand in an absent folder. |
+| `an ambiguous instruction operand is a reference while descriptions of another project's layout are examples` | K4 drops the text operand in an absent folder. |
+| `operative absolute and home paths receive review while descriptive install locations stay quiet` | K4 keeps explicit Markdown links and drops the bare host paths. |
+| `bare instruction filenames and non-Latin bundled folders include their missing and existing controls` | K4 drops bare filenames and retains the missing file under a real bundled folder. |
+| `different duplicates and likely trigger overlap remain visible` | K5 preserves duplicate-name findings and checks job overlap in the summary. |
+| `skill findings retain their duplicate-name and trigger-overlap messages` | K5 removes the overlap message and still pins the duplicate-name message. |
+| `published skill commands run the bundled checkers from either working directory` | K9 executes the fourth documented command and checks its candidate and collection. |
+
 ## [0.8.0] - 2026-11-26
 
 - Project CLI exit codes now distinguish Healthy or Watch (0), Needs attention (2) and Unavailable or incorrect usage (1). Omitting `--path` previously exited 2. Unknown options, missing values and invalid limits are reported. Each value option can appear once, using a space or an equals sign, and four limits can be set from the CLI.

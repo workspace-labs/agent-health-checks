@@ -26,8 +26,10 @@ function assertSingle(skill, status, code, value) {
   assert.deepEqual(skill.findings.map(f => [f.code, f.severity, f.message]), [[code, severity, prefix + value]]);
 }
 
-test("a caller's build command receives review in SKILL.md", t => {
-  assertSingle(scan(t, "Prefer `./gradlew`."), "Needs review", "unverified-reference", "./gradlew");
+test("a caller's build command stays quiet in SKILL.md", t => {
+  const skill = scan(t, "Prefer `./gradlew`.");
+  assert.equal(skill.status, "Universal");
+  assert.deepEqual(skill.findings, []);
 });
 
 test("escaped Markdown and a multiline code span cannot create a broken link", t => {
@@ -64,6 +66,7 @@ for (const target of ["./scripts/missing.sh", "references/missing.md", "${CLAUDE
 test("agents/openai.yaml distinguishes conventional asset paths from other icon paths", t => {
   const skill = scan(t, "Prepare a record.", {
     "agents/openai.yaml": 'interface:\n  icon_small: "./assets/small.svg"\n  icon_large: "./icons/large.svg"\n',
+    "icons/present.svg": "",
   });
   assert.deepEqual(skill.findings.map(f => [f.file, f.code, f.severity, f.message]), [
     ["agents/openai.yaml", "broken-reference", "error", "Referenced file does not exist: ./assets/small.svg"],
