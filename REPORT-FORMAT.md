@@ -83,7 +83,7 @@ For multiple extra fields, the message lists each field and product separated by
 | `digest` | 64 lowercase hexadecimal characters, produced by SHA-256. |
 | `status`, `statusKey`, `stack` | Display label, machine key and array of detected stack labels. An unavailable root reports `["Unknown"]`. |
 | `summary` | Integer counts named `findings`, `confirmed`, `likely`, `recommendation` and `high`. The last counts both high and critical findings. |
-| `findings`, `notices` | Arrays. Each notice carries `code` and `message` and may include `actionable` and `classification`. |
+| `findings`, `notices` | Arrays. Each notice carries `code` and `message` and may include `actionable`, `classification` and `count`. Repeated single-path notices of one code share a count and at most ten example paths. |
 | `limits` | Numeric bounds named `maxFiles`, `maxFileBytes`, `maxTotalBytes` and `maxDurationMs`. |
 | `fileCount`, `totalBytes`, `durationMs`, `disclaimer` | Collected file count, bytes counted by the scan, elapsed wall time for the whole audit in milliseconds (including rules and report preparation) and a static-analysis disclaimer. |
 
@@ -95,7 +95,20 @@ Each finding has `code`, `category`, `severity`, `confidence`, `message`, `file`
 
 The report digest hashes the collected relative paths paired with their file digests, sorted in UTF-16 code-unit order on the paths. A NUL separates each path and digest and each pair. Read file bytes contribute a SHA-256 hex digest. Recognized binary extensions, protected names and oversized files contribute size markers such as `binary:3`, `secret:4` and `oversized:5`. An empty collection hashes `empty:<real root>`. An unavailable root hashes `unavailable:<requested absolute path>:<error message>`. An unavailable digest depends on the path and error text. Desktop metadata files (`.DS_Store`, `Thumbs.db`, and `desktop.ini`) contribute neither paths nor bytes.
 
-**CLI.** A completed report exits 0 for every status, including Needs attention and Unavailable. Omitting the required path exits 2. Standalone help and version requests exit 0.
+**CLI.** Use `node scripts/audit-project.js --path <folder>` with optional `--json`, `--id <id>`, `--name <name>`, `--profile workspace`, `--max-files <n>`, `--max-file-bytes <n>`, `--max-total-bytes <n>` and `--max-duration-ms <n>`. All value options accept either a space or an equals sign. Limits are positive decimal whole numbers. Defaults are 2,400 files including links, 524,288 bytes per file, 14 MiB in total and 1,600 ms.
+
+Healthy and Watch exit 0. Needs attention exits 2. An inaccessible or refused folder prints an Unavailable report and exits 1. Unknown options, missing values, invalid profiles and invalid limits produce a diagnostic and usage on stderr and exit 1. A missing `--path` now exits 1 (previously 2). Standalone help and version exit 0.
+
+**Coverage in 0.8.0.** The optional module property `profile: "workspace"` enables the same layout rules as the CLI. An unknown module profile returns Unavailable and names the value. Both entry points refuse the real home folder, ancestors of home and filesystem roots before listing them.
+
+| Finding code | Severity and confidence | Exact message |
+|---|---|---|
+| `project-root-refused` | High, confirmed | `This folder is too broad to audit. Name the project folder itself.` |
+| `source-not-read` | Medium, recommendation | `<n> JavaScript or TypeScript source files were not read: <paths>` |
+
+Both findings point to `.`. A single source uses `1 JavaScript or TypeScript source file was not read: <path>`. Paths are sorted and comma-separated. More than five append ` and <m> more` after the fifth. The count covers identified eligible files. A deadline can prevent discovery of additional paths. Runtime source receives the text budget before package metadata, then documents and test bodies. Traversal metadata needed to identify exclusions has a separate budget.
+
+Unavailable findings use the impact `The checker cannot inspect or verify this folder.` and verification instruction `Check that --path names an existing folder you can read.`. An oversized file, binary file or unresolved link produces a notice for that skip. Independent rules can still identify a large asset or unread source. The terminal groups findings by code, protects high-severity groups and places unread source immediately after them. JSON retains each finding.
 
 **CommonJS exports.** `auditProject`, `collectProject`, `humanReport`, `isIntentionalReferenceData` and `resolveFinding` are synchronous functions. The module also exports the `DEFAULT_LIMITS` object. A successful `resolveFinding(report, { digest, findingId })` returns `{ report, finding }`. An unmatched digest or ID returns `null`.
 

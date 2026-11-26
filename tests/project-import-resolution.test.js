@@ -1,5 +1,7 @@
 "use strict";
 
+const { watchFileReads } = require("./support/project-reads");
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -73,11 +75,9 @@ test("relative imports outside the scan use exact names without reading target c
   const { root, put } = fixture(t);
   const target = put("../shared/money.js", "throw new Error('fixture must never run');");
   put("app.js", "require('../shared/money');\nrequire('../shared/Money');\nrequire('../shared/gone');");
-  const original = fs.readFileSync;
   const outsideReads = [];
-  t.mock.method(fs, "readFileSync", function (name, ...args) {
-    if (typeof name === "string" && path.dirname(name) === path.dirname(target)) outsideReads.push(name);
-    return original.call(this, name, ...args);
+  watchFileReads(t, name => {
+    if (path.dirname(name) === path.dirname(target)) outsideReads.push(name);
   });
   check(root, ["../shared/Money", "../shared/gone"]);
   assert.deepEqual(outsideReads, []);

@@ -60,6 +60,10 @@ node skills/audit-project-health/scripts/audit-project.js --path /absolute/proje
 
 Add `--json` for a machine-readable report. Run either script with `--version` alone to print its release. The [report format](REPORT-FORMAT.md) lists the fields and exit codes for each checker.
 
+The project checker accepts `--path`, `--id`, `--name`, `--profile workspace` and four positive whole-number limits: `--max-files`, `--max-file-bytes`, `--max-total-bytes` and `--max-duration-ms`. Value options accept both a space and an equals sign. Choose a project folder. The checker refuses filesystem roots, the home folder and every ancestor of home. Folders inside home are accepted. The optional workspace profile enables exclusions for the owner's app layout. The default checks those paths as ordinary project content.
+
+Project exit codes are **0** for Healthy or Watch, **2** for Needs attention and **1** for usage errors or an Unavailable report. Standalone help and version exit 0.
+
 Run the tests from the clone. Verified on Node 20.20.2, 22.23.1, 24.22.1, and 26.13.1.
 
 ```bash

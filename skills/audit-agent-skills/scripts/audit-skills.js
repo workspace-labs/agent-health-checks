@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { isUtf8 } = require("node:buffer");
 
 const AXES = ["structure", "triggers", "safety", "portability", "claude", "codex"];
-const CHECKER_VERSION = "0.7.0";
+const CHECKER_VERSION = "0.8.0";
 const DEFAULT_LIMITS = Object.freeze({ maxFiles: 320, maxFileBytes: 1024 * 1024, maxTotalBytes: 6 * 1024 * 1024 });
 const BINARY_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".pdf", ".zip", ".gz", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov"]);
 const UNREAD_DIRS = new Set(["node_modules", "__pycache__"]);

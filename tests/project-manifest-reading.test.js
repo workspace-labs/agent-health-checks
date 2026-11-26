@@ -1,5 +1,7 @@
 "use strict";
 
+const { watchFileReads } = require("./support/project-reads");
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -63,19 +65,22 @@ test("a second BOM and whitespace-only text retain the JSON parser finding", t =
   }
 });
 
-test("an oversized manifest retains its coverage finding", t => {
+test("an oversized manifest retains its size notice", t => {
   const report = project(t, { "package.json": manifest }, { maxFileBytes: 10 });
-  assert.deepEqual(report.findings.map(item => item.code), ["oversized-text"]);
+  assert.deepEqual(report.findings, []);
+  assert.ok(report.notices.some(n => n.code === "oversized-text" && n.message.includes("package.json")));
 });
 
-test("binary source and manifest files are named, images and fonts are quiet", t => {
+test("binary sources, manifests, images and fonts share a bounded notice", t => {
   const sources = ["a.js", "b.jsx", "c.mjs", "d.cjs", "e.ts", "f.tsx", "g.cts", "h.mts", "i.json", "j.webmanifest", "package.json"];
   const files = Object.fromEntries([...sources, "picture.png", "font.woff2"].map(name => [name, utf16]));
   const report = project(t, files);
-  assert.deepEqual(report.notices.map(({ code, message }) => [code, message]).sort(), sources.map(name =>
-    ["binary-source-skipped", "Skipped " + name + " because it looks binary."]).concat([
-    ["code-coverage", "Code rules examined 1 JavaScript/TypeScript file. Other languages seen but not examined: none."],
-  ]).sort());
+  assert.equal(report.notices.length, 2);
+  const binary = report.notices.find(n => n.code === "binary-source-skipped");
+  assert.equal(binary.count, sources.length + 2);
+  assert.ok(binary.message.includes("a.js"));
+  assert.ok(report.notices.some(n => n.code === "code-coverage" &&
+    n.message === "Code rules examined 1 JavaScript/TypeScript file. Other languages seen but not examined: none."));
 });
 
 test("the same source in plain UTF-8 is checked", t => {
@@ -97,10 +102,8 @@ test("a UTF-16 source BOM discloses a skipped file even when no byte is zero", t
 
 for (const [code, reason] of [["EACCES", "access was denied"], ["EIO", "the file read failed"]]) {
   test(code + " names the manifest read failure without claiming malformed JSON", t => {
-    const readFile = fs.readFileSync;
-    t.mock.method(fs, "readFileSync", (name, ...args) => {
+    watchFileReads(t, name => {
       if (path.basename(name) === "package.json") throw Object.assign(new Error("fixture read failure"), { code });
-      return readFile(name, ...args);
     });
     const report = project(t, { "package.json": manifest });
     assert.equal(report.status, "Needs attention");

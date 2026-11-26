@@ -252,7 +252,7 @@ test("proven Capacitor generated assets and cache consume no budget while native
   assert.ok(nonactionableNotice(report, "android/.gradle"));
   assert.ok(nonactionableNotice(report, "android/app/src/main/assets/public"));
   assert.equal(report.findings.some((finding) => finding.code === "scan-limit"), false);
-  assert.ok(report.findings.some((finding) => finding.code === "oversized-text" && finding.message.includes(nativePath)));
+  assert.ok(report.notices.some(n => n.code === "oversized-text" && n.message.includes(nativePath)));
 });
 
 for (const [label, provenance] of [
@@ -284,11 +284,11 @@ test("proven tablet snapshots are disclosed and excluded without hiding loose ba
   capacitorProject(root);
   put(root, ".tablet-backup/source.js", "require('./missing-loose-source');\n");
   const limits = { maxFiles: 8, maxFileBytes: 1024, maxTotalBytes: 4096, maxDurationMs: 4000 };
-  const baseline = auditProject({ projectPath: root, limits });
+  const baseline = auditProject({ profile: "workspace", projectPath: root, limits });
   tabletSnapshot(root, ".tablet-backup/snapshot-one");
   tabletSnapshot(root, ".tablet-backup/snapshot-two");
 
-  const report = auditProject({ projectPath: root, limits });
+  const report = auditProject({ profile: "workspace", projectPath: root, limits });
   assert.equal(report.fileCount, baseline.fileCount);
   assert.equal(report.digest, baseline.digest);
   assert.ok(nonactionableNotice(report, ".tablet-backup/snapshot-one"));
@@ -308,7 +308,7 @@ for (const [label, changes] of [
     capacitorProject(root);
     tabletSnapshot(root, ".tablet-backup/unproven", changes);
 
-    const report = auditProject({ projectPath: root });
+    const report = auditProject({ profile: "workspace", projectPath: root });
     assert.ok(brokenImports(report).some((finding) => finding.file === ".tablet-backup/unproven/extracted/assets/app.js"));
     assert.equal(nonactionableNotice(report, ".tablet-backup/unproven"), false);
   });
@@ -322,7 +322,7 @@ test("tablet metadata without a real apk or extracted directory does not hide so
   }));
   put(root, ".tablet-backup/unproven/source.js", "require('./missing-loose-source');\n");
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   assert.ok(brokenImports(report).some((finding) => finding.file === ".tablet-backup/unproven/source.js"));
 });
 
@@ -341,8 +341,21 @@ for (const mode of ["oversized", "symlinked"]) {
       fs.symlinkSync(externalFile, path.join(root, ".tablet-backup/unproven/summary.json"));
     } else put(root, ".tablet-backup/unproven/summary.json", metadata);
 
-    const report = auditProject({ projectPath: root });
+    const report = auditProject({ profile: "workspace", projectPath: root });
     assert.ok(brokenImports(report).some((finding) => finding.file === ".tablet-backup/unproven/extracted/app.js"));
     assert.equal(nonactionableNotice(report, ".tablet-backup/unproven"), false);
   });
 }
+
+test("a verified tablet snapshot is ordinary source without a workspace profile", t => {
+  const root = temp(t, "tablet-generic");
+  capacitorProject(root);
+  const dir = ".tablet-backup/snapshot";
+  tabletSnapshot(root, dir);
+  const generic = auditProject({ projectPath: root });
+  assert.ok(brokenImports(generic).some(f => f.file === dir + "/extracted/assets/app.js"));
+  assert.ok(!nonactionableNotice(generic, dir));
+  const workspace = auditProject({ projectPath: root, profile: "workspace" });
+  assert.deepEqual(brokenImports(workspace), []);
+  assert.ok(nonactionableNotice(workspace, dir));
+});

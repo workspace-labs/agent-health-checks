@@ -79,3 +79,27 @@ test("escaped characters name literal files in both existing and new import form
   assert.deepEqual(scan(t, source).findings.map(f => f.message), spellings.map(s => `Relative import does not resolve: ${s}`));
   assert.deepEqual(scan(t, source, Object.fromEntries(targets.map(t => [t, ""]))).findings, []);
 });
+
+test("missing imports are distinct by file and source line", t => {
+  const src = [
+    "require('./m'); require('./m'); require('./n');",
+    "require('./m');",
+  ].join("\n");
+  const findings = scan(t, src).findings;
+  assert.deepEqual(findings.map(f => [f.line, f.message]), [
+    [1, "Relative import does not resolve: ./m"],
+    [1, "Relative import does not resolve: ./n"],
+    [2, "Relative import does not resolve: ./m"],
+  ]);
+  assert.equal(new Set(findings.map(f => f.id)).size, 3);
+  assert.deepEqual(scan(t, src, { "m.js": "", "n.js": "" }).findings, []);
+});
+
+test("alternate spellings of one disk target cannot exhaust the missing import limit", t => {
+  const repeated = ["require('./m');", "require('./m?raw');", "require('./sub/../m');"].join(" ").repeat(10);
+  const report = scan(t, repeated + "require('./n');");
+  assert.deepEqual(report.findings.map(f => f.message), [
+    "Relative import does not resolve: ./m", "Relative import does not resolve: ./n",
+  ]);
+  assert.ok(!report.notices.some(n => n.code === "broken-import-limit"));
+});

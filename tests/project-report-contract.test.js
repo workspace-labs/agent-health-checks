@@ -44,9 +44,9 @@ function checkSchema(report) {
   }
 }
 
-function cliReport(root) {
+function cliReport(root, expectedExit = 0) {
   const result = spawnSync(process.execPath, [script, "--path", root, "--json"], { encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.status, expectedExit, result.stderr);
   return JSON.parse(result.stdout);
 }
 
@@ -76,7 +76,7 @@ test("project evidence retains its field names, severity, confidence, wording, d
   assert.deepEqual(checker.resolveFinding(report, { digest: report.digest, findingId: finding.id }), { report, finding });
   assert.equal(checker.resolveFinding(report, { digest: "0".repeat(64), findingId: finding.id }), null);
   assert.equal(checker.resolveFinding(report, { digest: report.digest, findingId: "0".repeat(24) }), null);
-  const cli = cliReport(root);
+  const cli = cliReport(root, 2);
   checkSchema(cli);
   assert.deepEqual(cli.findings, report.findings);
 });
@@ -89,7 +89,7 @@ test("project checker reserves critical severity above high", () => {
   assert.deepEqual(ranks, { critical: 0, high: 1, medium: 2, low: 3 });
 });
 
-test("project CLI returns zero for Healthy, Watch and Unavailable, and two when the path is omitted", (t) => {
+test("project CLI returns zero for Healthy and Watch, and one for an unavailable or omitted path", (t) => {
   const root = projectDirectory(t);
   const watch = cliReport(root);
   assert.deepEqual([watch.statusKey, watch.status], ["watch", "Watch"]);
@@ -99,7 +99,7 @@ test("project CLI returns zero for Healthy, Watch and Unavailable, and two when 
 
   // An ordinary file yields a portable error string for the unavailable-root digest.
   const file = path.join(root, "README.md");
-  const unavailable = cliReport(file);
+  const unavailable = cliReport(file, 1);
   checkSchema(unavailable);
   const digest = createHash("sha256").update(`unavailable:${file}:Target is not a directory`).digest("hex");
   assert.equal(unavailable.digest, digest);
@@ -108,10 +108,20 @@ test("project CLI returns zero for Healthy, Watch and Unavailable, and two when 
   assert.deepEqual(unavailable.summary, { findings: 1, confirmed: 1, likely: 0, recommendation: 0, high: 1 });
   assert.equal(unavailable.findings[0].code, "project-unavailable");
   assert.equal(unavailable.findings[0].message, "Project root is unavailable: Target is not a directory");
+  const expectedFields = {
+    code: "project-unavailable", category: "structure", severity: "high", confidence: "confirmed",
+    message: "Project root is unavailable: Target is not a directory", file: ".", line: 1,
+    impact: "The checker cannot inspect or verify this folder.",
+    verify: "Check that --path names an existing folder you can read.",
+    recommendation: "Correct the project path or restore access, then scan again.",
+  };
+  const expectedId = createHash("sha256").update(JSON.stringify({ reportDigest: digest, ...expectedFields }))
+    .digest("hex").slice(0, 24);
+  assert.deepEqual(unavailable.findings[0], { ...expectedFields, id: expectedId });
   const missing = spawnSync(process.execPath, [script, "--json"], { encoding: "utf8" });
-  assert.equal(missing.status, 2);
+  assert.equal(missing.status, 1);
   assert.equal(missing.stdout, "");
-  assert.equal(missing.stderr.trim(), "--path is required; refuse broad implicit scans.");
+  assert.match(missing.stderr.trim(), /^--path is required[^\n]*\nUsage: [^\n]+$/);
 });
 
 test("project digest covers sorted paths, content hashes and size markers", (t) => {

@@ -2,63 +2,26 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
-const crypto = require("node:crypto");
-const { projectContext, gitInfoExclude, addLiteralIgnoreFolders } = require("./project-context");
+const { collectProject, displayPath, compareNames, inside, hash, isIntentionalReferenceData,
+  SOURCE_EXT, isRuntimeSource, isNonProductionSource } = require("./project-collection");
 const { electronRules, executableEvidence, isExplicitNodeCli } = require("./source-evidence");
 const { createPathProbe, resolveNodeEntry } = require("./project-paths");
 const { relativeImportLiterals } = require("./import-context");
-const { hasUtf16Mark, packageReadProblem, parsePackage } = require("./package-text");
+const { parsePackage } = require("./package-text");
+const { pathNotice, groupPathNotices, humanReport } = require("./project-report");
 
-const CHECKER_VERSION = "0.7.0";
+const CHECKER_VERSION = "0.8.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,
   maxTotalBytes: 14 * 1024 * 1024,
   maxDurationMs: 1600,
 });
-const WORKSPACE_ARTIFACT_DIRS = new Map([
-  [".backup-install", "workspace-install-backup"],
-  [".backup-pipeline", "workspace-task-backup"],
-  [".proof", "workspace-review-proof"],
-  [".proof-pipeline", "workspace-review-proof"],
-  [".trash", "workspace-recoverable-trash"],
-]);
-// Editor/tool backup FILES the project keeps beside its source (the .gitignore shapes
-// "*.bak" and "*.bak-*"). Disclosed like the artifact folders above and never scanned as
-// shipped source, so a retained backup cannot raise coverage or source findings of its own.
-const WORKSPACE_ARTIFACT_FILE = /\.bak(?:$|-)/;
-const SKIP_DIRS = new Set([
-  ".git", ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache", ".parcel-cache",
-  ".venv", "__pycache__", "node_modules", "DerivedData", ".idea", ".vscode", ".pipeline",
-  ...WORKSPACE_ARTIFACT_DIRS.keys(),
-]);
-const ROOT_OUTPUT_DIRS = new Set(["vendor", "dist", "build", "out", "tmp", "coverage", "target"]);
-const SECRET_NAMES = /^(?:\.env(?:\..+)?|.*\.(?:pem|key|p12|pfx|keystore|jks)|id_(?:rsa|ed25519|ecdsa|dsa)|\.(?:npmrc|netrc|pypirc|git-credentials)|credentials\.json)$/i;
-const TEMPLATE_SUFFIX = /\.(?:example|sample|template|dist)$/i;
-const DESKTOP_METADATA = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
-const BINARY_EXT = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".pdf", ".zip",
-  ".gz", ".7z", ".tar", ".apk", ".aab", ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov",
-  ".avi", ".dmg", ".app", ".exe", ".dll", ".so", ".dylib", ".wasm", ".sqlite",
-]);
-const SOURCE_EXT = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"]);
-// Recognize other source languages by filename without claiming to analyze them.
-const OTHER_LANGUAGES = new Map(Object.entries({
-  ".py": "Python", ".pyi": "Python", ".go": "Go", ".rs": "Rust", ".swift": "Swift", ".php": "PHP",
-  ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".cs": "C#", ".c": "C", ".h": "C/C++",
-  ".cc": "C++", ".cpp": "C++", ".cxx": "C++", ".hpp": "C++", ".m": "Objective-C/MATLAB", ".mm": "Objective-C++",
-  ".dart": "Dart", ".rb": "Ruby", ".pl": "Perl", ".pm": "Perl", ".lua": "Lua", ".r": "R",
-  ".scala": "Scala", ".groovy": "Groovy", ".ex": "Elixir", ".exs": "Elixir", ".erl": "Erlang",
-  ".hs": "Haskell", ".clj": "Clojure", ".fs": "F#", ".fsx": "F#", ".jl": "Julia", ".zig": "Zig",
-  ".sh": "Shell", ".bash": "Shell", ".zsh": "Shell", ".fish": "Shell", ".ps1": "PowerShell",
-  ".html": "HTML", ".htm": "HTML", ".css": "CSS", ".scss": "Sass", ".sass": "Sass", ".less": "Less",
-  ".vue": "Vue", ".svelte": "Svelte", ".astro": "Astro", ".sql": "SQL",
-}));
 // These filename labels identify presentation formats, including component templates.
 const MARKUP_AND_STYLES = new Set(["HTML", "CSS", "Sass", "Less", "Vue", "Svelte", "Astro"]);
 const IMPORT_EXT = ["", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json"];
-const REFERENCE_DATA_EXT = new Set([".csv", ".tsv", ".jsonl", ".ndjson"]);
 
 function normalizeLimits(input = {}) {
   const out = {};
@@ -67,32 +30,6 @@ function normalizeLimits(input = {}) {
     out[key] = Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
   }
   return out;
-}
-
-function displayPath(root, absolute) {
-  const rel = path.relative(root, absolute).split(path.sep).join("/");
-  return rel || ".";
-}
-
-function compareNames(left, right) {
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
-}
-
-function isProtectedFile(name, rel) {
-  return !TEMPLATE_SUFFIX.test(name) && (SECRET_NAMES.test(name) || /(?:^|\/)\.aws\/credentials$/i.test(rel));
-}
-
-function inside(parent, child) {
-  const rel = path.relative(parent, child);
-  return rel === "" || (!rel.startsWith(".." + path.sep) && rel !== ".." && !path.isAbsolute(rel));
-}
-
-function isIntentionalReferenceData(rel) {
-  const normalized = String(rel || "").split(path.sep).join("/").toLowerCase();
-  const segments = normalized.split("/");
-  return REFERENCE_DATA_EXT.has(path.posix.extname(normalized)) &&
-    segments.some((segment) => segment === "data" || segment === "reference" || segment === "references");
 }
 
 function normalizeDeclaredPath(value) {
@@ -237,10 +174,6 @@ function lineAt(text, index) {
   return String(text || "").slice(0, Math.max(0, index)).split(/\r?\n/).length;
 }
 
-function hash(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
 function makeFinding(reportDigest, data) {
   const finding = {
     code: String(data.code),
@@ -263,207 +196,6 @@ function coverageNotice(count, languages = []) {
   return { code: "code-coverage", actionable: false, message };
 }
 
-function collectProject(root, limits, rootEntries, started = Date.now()) {
-  const files = [];
-  const notices = [];
-  let context;
-  const incompleteDirectories = new Set();
-  const workerPaths = [];
-  const nestedPackages = [];
-  const otherLanguages = new Set();
-  const excludedFolders = new Set();
-  const rootDirectoryNames = new Set();
-  const ignoreNames = new Set();
-  let packageReadError = "";
-  let totalBytes = 0;
-  let limited = false;
-
-  function stop(reason) {
-    if (!limited) notices.push({ code: "scan-limit", message: reason });
-    limited = true;
-  }
-
-  function timeExpired() {
-    if (Date.now() - started < limits.maxDurationMs) return false;
-    stop(`Stopped after the ${limits.maxDurationMs}ms time bound.`);
-    return true;
-  }
-
-  function artifactContext() {
-    if (!context) {
-      const canRead = rel => !timeExpired() && !(rel.includes("/") && ignoreNames.has(rel.split("/")[0]));
-      context = projectContext(root, limits, notices, canRead);
-    }
-    return context;
-  }
-
-  function walk(dir) {
-    if (limited || timeExpired()) return;
-    let entries;
-    try {
-      entries = dir === root && rootEntries ? rootEntries : fs.readdirSync(dir, { withFileTypes: true });
-    } catch (error) {
-      const rel = displayPath(root, dir);
-      incompleteDirectories.add(rel);
-      notices.push({ code: "unreadable-directory", message: `Could not read ${rel}: ${error.message}` });
-      return;
-    }
-    if (timeExpired()) return;
-    const rootLevel = dir === root;
-    const parentRel = rootLevel ? "" : displayPath(root, dir) + "/";
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const rel = parentRel + entry.name;
-      if (rootLevel) rootDirectoryNames.add(entry.name);
-      if (SKIP_DIRS.has(entry.name) || (rootLevel && ROOT_OUTPUT_DIRS.has(entry.name)) ||
-          (isNonProductionSource(rel) && !isNonProductionSource(parentRel))) excludedFolders.add(rel);
-    }
-    if (rootLevel) {
-      if (rootDirectoryNames.has(".git")) addLiteralIgnoreFolders(gitInfoExclude(root, limits, timeExpired), ignoreNames);
-      // Artifact metadata has its own byte and file budget. When a root ignore file
-      // is present, defer metadata reads until its rules are known (root files run first).
-      if (!entries.some(entry => entry.name === ".gitignore" && entry.isFile())) artifactContext();
-    }
-    // Inspect root files and src before a large asset tree can exhaust the budget.
-    function rootPriority(entry) {
-      if (entry.name === "package.json" && entry.isFile()) return -1;
-      if (!entry.isDirectory()) return 0;
-      return entry.name === "src" ? 1 : 2;
-    }
-    entries.sort((a, b) => {
-      const priority = dir === root ? rootPriority(a) - rootPriority(b) : 0;
-      return priority || compareNames(a.name, b.name);
-    });
-
-    for (const entry of entries) {
-      if (limited) break;
-      if (timeExpired()) return;
-      const absolute = path.join(dir, entry.name);
-      if (!entry.isDirectory() && DESKTOP_METADATA.has(entry.name)) continue;
-      const rel = displayPath(root, absolute);
-      if (dir !== root && entry.name === "package.json" && !entry.isDirectory()) nestedPackages.push(rel);
-      let stat;
-      try { stat = fs.lstatSync(absolute); } catch {
-        incompleteDirectories.add(displayPath(root, dir));
-        continue;
-      }
-      if (timeExpired()) return;
-      if (/(?:service-worker|sw)\.(?:js|ts)$/i.test(entry.name) && (stat.isSymbolicLink() || stat.isFile())) {
-        workerPaths.push(displayPath(root, absolute));
-      }
-      if (stat.isSymbolicLink()) {
-        let real = "";
-        let resolutionCode = "";
-        try { real = fs.realpathSync(absolute); }
-        catch (error) { resolutionCode = error && error.code ? error.code : "unresolved"; }
-        notices.push({
-          code: resolutionCode ? "symlink-unresolved" : real && !inside(root, real) ? "symlink-escape" : "symlink-skipped",
-          ...(real && inside(root, real) ? { actionable: false, classification: "in-project-symlink" } : {}),
-          message: resolutionCode
-            ? `Skipped unresolved symlink (${resolutionCode}): ${displayPath(root, absolute)}`
-            : real && !inside(root, real) ? `Refused symlink escaping the project: ${displayPath(root, absolute)}` : `Skipped symlink: ${displayPath(root, absolute)}`,
-        });
-        continue;
-      }
-      if (stat.isDirectory()) {
-        const ignored = dir === root && ignoreNames.has(entry.name);
-        const skipByName = SKIP_DIRS.has(entry.name) || (dir === root && ROOT_OUTPUT_DIRS.has(entry.name));
-        const excluded = artifactContext().excludedDirectory(rel);
-        if (excluded) {
-          notices.push({ code: "project-artifact-excluded", message: `Excluded ${displayPath(root, absolute)}: ${excluded.reason}.`, actionable: false, classification: excluded.classification });
-          continue;
-        }
-        const artifactClassification = WORKSPACE_ARTIFACT_DIRS.get(entry.name);
-        if (artifactClassification) {
-          notices.push({
-            code: "workspace-artifact-excluded",
-            message: `Excluded Workspace artifact folder ${rel}; its contents were not scanned as shipped project source.`,
-            actionable: false,
-            classification: artifactClassification,
-          });
-          continue;
-        }
-        if (!skipByName && !ignored) walk(absolute);
-        continue;
-      }
-      if (!stat.isFile()) continue;
-      const language = OTHER_LANGUAGES.get(path.extname(entry.name).toLowerCase());
-      if (language) otherLanguages.add(language);
-      const protectedFile = isProtectedFile(entry.name, rel);
-      if (!protectedFile && WORKSPACE_ARTIFACT_FILE.test(entry.name)) {
-        notices.push({
-          code: "workspace-artifact-excluded",
-          message: `Excluded Workspace artifact file ${rel}; it was not scanned as shipped project source.`,
-          actionable: false,
-          classification: "workspace-editor-backup",
-        });
-        continue;
-      }
-      if (files.length >= limits.maxFiles) return stop(`Stopped at the ${limits.maxFiles}-file bound.`);
-      if (protectedFile) {
-        files.push({ rel, absolute, size: stat.size, secret: true, binary: true, skipped: true, text: "", digest: `secret:${stat.size}` });
-        continue;
-      }
-      const ext = path.extname(entry.name).toLowerCase();
-      if (BINARY_EXT.has(ext)) {
-        files.push({ rel, absolute, size: stat.size, binary: true, skipped: false, text: "", digest: `binary:${stat.size}` });
-        continue;
-      }
-      if (stat.size > limits.maxFileBytes) {
-        files.push({ rel, absolute, size: stat.size, binary: false, skipped: true, text: "", digest: `oversized:${stat.size}` });
-        const intentionalReferenceData = isIntentionalReferenceData(rel);
-        notices.push({
-          code: "oversized-text",
-          message: `Skipped ${rel}; it exceeds ${limits.maxFileBytes} bytes.`,
-          actionable: !intentionalReferenceData,
-          classification: intentionalReferenceData ? "reference-data" : "unclassified-text",
-        });
-        continue;
-      }
-      if (totalBytes + stat.size > limits.maxTotalBytes) return stop(`Stopped at the ${limits.maxTotalBytes}-byte text bound.`);
-      let buffer;
-      try { buffer = fs.readFileSync(absolute); }
-      catch (error) {
-        if (rel === "package.json") {
-          packageReadError = ["EACCES", "EPERM"].includes(error?.code) ? "access was denied" : "the file read failed";
-        }
-        notices.push({ code: "unreadable-file", message: `Could not read ${rel}.` });
-        continue;
-      }
-      totalBytes += buffer.length;
-      const packageProblem = entry.name === "package.json" ? packageReadProblem(buffer) : "";
-      const sourceOrManifest = SOURCE_EXT.has(ext) || ext === ".json" || ext === ".webmanifest";
-      const binary = buffer.subarray(0, 8192).includes(0) || (sourceOrManifest && hasUtf16Mark(buffer));
-      if (binary && sourceOrManifest) {
-        notices.push({ code: "binary-source-skipped", message: `Skipped ${rel} because it looks binary.`, actionable: false });
-      }
-      const text = binary ? "" : buffer.toString("utf8");
-      if (rel === ".gitignore" && buffer.length === stat.size) addLiteralIgnoreFolders(buffer, ignoreNames);
-      const file = { rel, absolute, size: buffer.length, binary, skipped: false, text, digest: hash(buffer) };
-      if (packageProblem) file.packageProblem = packageProblem;
-      files.push(file);
-    }
-  }
-
-  walk(root);
-  if (nestedPackages.length) notices.push({
-    code: "nested-packages-not-judged", actionable: false,
-    message: `Nested packages were not judged: ${nestedPackages.sort().join(", ")}.`,
-  });
-  const ignoredFolders = new Set([...ignoreNames].filter(name => rootDirectoryNames.has(name)));
-  for (const [folders, code, label] of [
-    [excludedFolders, "folders-not-judged", "Code rules excluded"],
-    [ignoredFolders, "git-ignored-folders", "Git ignore rules excluded"],
-  ]) {
-    if (folders.size) notices.push({
-      code, actionable: false,
-      message: `${label} ${folders.size} folder${folders.size === 1 ? "" : "s"}: ${[...folders].sort().join(", ")}.`,
-    });
-  }
-  files.sort((a, b) => compareNames(a.rel, b.rel));
-  return { files, notices, otherLanguages, limited, totalBytes, workerPaths, incompleteDirectories, packageReadError, durationMs: Date.now() - started };
-}
-
 // A name can be present, absent, or uncheckable (permissions or a link boundary).
 // A verified candidate wins even if another candidate could not be inspected.
 function anyProjectFile(names, fileSet, root, probe) {
@@ -477,13 +209,14 @@ function anyProjectFile(names, fileSet, root, probe) {
   return result;
 }
 
-function missingAfterCheck(found, subject, collected, incomplete = collected.limited) {
+function missingAfterCheck(found, subject, collected, incomplete = collected.limited, entry) {
   if (found === true) return false;
   if (found === false && !incomplete) return true;
-  collected.notices.push({
+  const notice = {
     code: "file-not-checked", actionable: false,
     message: `${subject} was not checked because the scan was incomplete or the path could not be verified.`,
-  });
+  };
+  collected.notices.push(entry === undefined ? notice : pathNotice(entry, notice));
   return false;
 }
 
@@ -496,14 +229,14 @@ function missingPackageEntry(entry, field, root, probe, collected) {
   if (next && ["dist", "build", "out"].includes(first)) {
     const output = path.join(root, first);
     if (probe(output, "directory") === false && probe(output) === false) {
-      collected.notices.push({
+      collected.notices.push(pathNotice(entry, {
         code: "package-entry-not-built", actionable: false,
         message: `${subject}: not built yet, cannot confirm.`,
-      });
+      }));
       return false;
     }
   }
-  return missingAfterCheck(found, subject, collected);
+  return missingAfterCheck(found, subject, collected, collected.limited, entry);
 }
 
 function detectStack(files, pkg) {
@@ -523,12 +256,14 @@ function detectStack(files, pkg) {
   return [...stack];
 }
 
-function resolveRelativeImport(file, spec, fileSet, root, probe, fileMap) {
-  if (!spec.startsWith(".")) return true;
+function importDiskPath(file, spec) {
   // Bundlers such as Vite attach resource queries (`?url`, `?raw`) and fragments
   // to a real on-disk path. Resolve the filesystem portion only.
   const diskSpec = spec.split(/[?#]/, 1)[0];
-  const base = path.posix.normalize(path.posix.join(path.posix.dirname(file.rel), diskSpec));
+  return path.posix.join(path.posix.dirname(file.rel), diskSpec);
+}
+
+function resolveRelativeImport(file, base, fileSet, root, probe, fileMap) {
   const typescript = /\.(?:tsx?|mts|cts)$/.test(file.rel);
   const extension = path.posix.extname(base);
   const substitutions = typescript ? {
@@ -564,21 +299,6 @@ function resolveRelativeImport(file, spec, fileSet, root, probe, fileMap) {
   return resolved === false ? unresolved : resolved;
 }
 
-function isTestPath(rel) {
-  return /(?:^|\/)(?:tests?|__tests__|fixtures?)(?:\/|$)|\.(?:test|spec)\.[^.]+$/i.test(String(rel || ""));
-}
-
-// Trees a project keeps beside its source that are not the shipped product: scratch
-// mockups and their drivers ("demos/..."), and a skill's starter code ("skills-library/
-// <skill>/templates/..."). Top-level output folders are excluded during traversal. Narrow on purpose: the segment must be exactly "demos", so a root
-// "demo-debug.js" is still ordinary source, and the template rule is anchored to a skill
-// package, so an application's own "src/templates/app.js" still counts.
-function isNonProductionSource(rel) {
-  const value = String(rel || "");
-  return /(?:^|\/)demos(?:\/|$)/.test(value)
-    || /^skills-library\/[^/]+\/templates(?:\/|$)/.test(value);
-}
-
 // A script can mention a source path as data. Only command entry positions
 // identify a CLI, including a quoted filename passed to the Node interpreter.
 function declaredCliFiles(pkg) {
@@ -610,7 +330,7 @@ function reportVerdict(rawFindings, notices, reportDigest, timedOut) {
     "missing-test-script", "missing-lockfile", "broken-relative-import", "pwa-missing-manifest", "pwa-missing-worker"]);
   const evidence = timedOut ? rawFindings.filter(f => !absences.has(f.code)) : rawFindings.slice();
   for (const notice of notices) {
-    if (notice.actionable === false) continue;
+    if (notice.actionable === false || notice.code === "oversized-text" || notice.code === "symlink-unresolved") continue;
     evidence.push({
       code: notice.code, category: "coverage", severity: notice.code === "symlink-escape" ? "medium" : "low", confidence: notice.code === "symlink-escape" ? "likely" : "recommendation",
       message: notice.message, file: ".", line: 1,
@@ -643,20 +363,13 @@ function auditProject(options = {}) {
   const limits = normalizeLimits(options.limits);
   const projectId = String(options.projectId || path.basename(requested));
   const projectName = String(options.projectName || projectId);
-  let root;
-  let rootEntries;
-  try {
-    const stat = fs.statSync(requested);
-    if (!stat.isDirectory()) throw new Error("Target is not a directory");
-    root = fs.realpathSync(requested);
-    rootEntries = fs.readdirSync(root, { withFileTypes: true });
-  } catch (error) {
-    const reportDigest = hash(`unavailable:${requested}:${error.message}`);
+  function unavailable(reason, code = "project-unavailable") {
+    const reportDigest = hash(`unavailable:${requested}:${reason}`);
     const finding = makeFinding(reportDigest, {
-      code: "project-unavailable", category: "structure", severity: "high", confidence: "confirmed",
-      message: `Project root is unavailable: ${error.message}`, file: ".", line: 1,
-      impact: "The Doctor cannot inspect or verify this project.",
-      verify: "Confirm the catalog code_location and folder permissions.",
+      code, category: "structure", severity: "high", confidence: "confirmed",
+      message: code === "project-root-refused" ? reason : `Project root is unavailable: ${reason}`, file: ".", line: 1,
+      impact: "The checker cannot inspect or verify this folder.",
+      verify: "Check that --path names an existing folder you can read.",
       recommendation: "Correct the project path or restore access, then scan again.",
     });
     return {
@@ -668,7 +381,24 @@ function auditProject(options = {}) {
     };
   }
 
-  const collected = collectProject(root, limits, rootEntries, started);
+  if (options.profile !== undefined && options.profile !== "workspace") {
+    return unavailable("Unknown profile: " + String(options.profile));
+  }
+  let root;
+  let rootEntries;
+  try {
+    const stat = fs.statSync(requested);
+    if (!stat.isDirectory()) throw new Error("Target is not a directory");
+    root = fs.realpathSync.native(requested);
+    if (root === path.parse(root).root || inside(root, fs.realpathSync.native(os.homedir()))) {
+      return unavailable("This folder is too broad to audit. Name the project folder itself.", "project-root-refused");
+    }
+    rootEntries = fs.readdirSync(root, { withFileTypes: true });
+  } catch (error) {
+    return unavailable(error.message);
+  }
+
+  const collected = collectProject(root, limits, rootEntries, started, options.profile);
   let timedOut = false;
   function timeExpired() {
     if (!timedOut && Date.now() - started >= limits.maxDurationMs) {
@@ -690,6 +420,19 @@ function auditProject(options = {}) {
   const reportDigest = hash(digestInput || `empty:${root}`);
   const rawFindings = [];
   const add = (data) => rawFindings.push(data);
+
+  if (collected.unreadSources.length) {
+    const unread = collected.unreadSources;
+    const remaining = unread.length > 5 ? ` and ${unread.length - 5} more` : "";
+    add({
+      code: "source-not-read", category: "coverage", severity: "medium", confidence: "recommendation",
+      file: ".", line: 1,
+      message: `${unread.length} JavaScript or TypeScript source file${unread.length === 1 ? " was" : "s were"} not read: ${unread.slice(0, 5).join(", ")}${remaining}`,
+      impact: "Source checks could miss problems in these files.",
+      verify: "Review the listed files and the scan limits.",
+      recommendation: "Raise the relevant limit or check a smaller project folder.",
+    });
+  }
 
   const manifestProblem = collected.packageReadError || packageFile?.packageProblem;
   if (manifestProblem) add({
@@ -766,23 +509,20 @@ function auditProject(options = {}) {
     });
   }
 
-  const sourceFiles = collected.files.filter((file) => !file.binary && !file.skipped && SOURCE_EXT.has(path.extname(file.rel).toLowerCase()));
-  // Test and fixture bodies commonly embed deliberately broken/risky code as string
-  // samples. Keep them in the project digest, but do not treat those samples as live
-  // production evidence for import, runtime, security, or residue heuristics.
-  // Scratch demo trees and skill templates are held to the same rule for the same reason:
-  // they are read as samples, never loaded by the shipped app, so their risky-looking code
-  // is not live production evidence either.
-  const runtimeSourceFiles = sourceFiles.filter((file) => !isTestPath(file.rel) && !isNonProductionSource(file.rel));
+  const runtimeSourceFiles = collected.files.filter(file =>
+    !file.binary && !file.skipped && isRuntimeSource(file.rel, options.profile));
   const examinedSources = new Set();
   const importLimit = 24;
   let brokenImports = 0;
   importFiles: for (const file of runtimeSourceFiles) {
     if (timeExpired()) break;
     examinedSources.add(file.rel);
+    const reportedThrough = new Map();
     for (const { index, spec, spelling } of relativeImportLiterals(file.text, file.rel)) {
       if (timeExpired()) break importFiles;
-      const resolved = resolveRelativeImport(file, spec, fileSet, root, probe, fileMap);
+      const base = importDiskPath(file, spec);
+      if (index < (reportedThrough.get(base) ?? 0)) continue;
+      const resolved = resolveRelativeImport(file, base, fileSet, root, probe, fileMap);
       if (resolved === null) {
         collected.notices.push({ code: "import-not-checked", actionable: false, message: `Could not check relative import ${spelling} in ${file.rel}.` });
         continue;
@@ -793,6 +533,8 @@ function auditProject(options = {}) {
         break importFiles;
       }
       brokenImports++;
+      const lineEnd = file.text.indexOf("\n", index);
+      reportedThrough.set(base, lineEnd < 0 ? file.text.length : lineEnd);
       add({
         code: "broken-relative-import", category: "bug", severity: "high", confidence: "confirmed",
         message: `Relative import does not resolve: ${spelling}`, file: file.rel, line: lineAt(file.text, index),
@@ -831,7 +573,7 @@ function auditProject(options = {}) {
     if (timeExpired()) break;
     // Not runtime weight, for the same reason the tree is not runtime source. Disclosed as
     // one grouped non-actionable notice rather than a performance finding about the product.
-    if (isNonProductionSource(file.rel)) { nonProductionLarge.push(file); continue; }
+    if (isNonProductionSource(file.rel, options.profile)) { nonProductionLarge.push(file); continue; }
     const classification = classifyIntentionalLargeAsset(file, pkg, fileSet);
     if (classification) intentionalLarge.push({ file, ...classification });
     else oversized.push(file);
@@ -843,12 +585,12 @@ function auditProject(options = {}) {
     classification: "non-production-tree",
   });
   for (const item of intentionalLarge.sort((a, b) => compareNames(a.file.rel, b.file.rel))) {
-    collected.notices.push({
+    collected.notices.push(pathNotice(item.file.rel, {
       code: "intentional-large-asset",
       message: `Retained ${item.file.rel} (${formatMiB(item.file.size)}): ${item.reason}.`,
       actionable: false,
       classification: item.classification,
-    });
+    }));
   }
   if (oversized.length) add({
     code: "large-project-files", category: "performance", severity: "medium", confidence: "likely",
@@ -930,7 +672,7 @@ function auditProject(options = {}) {
   return {
     schemaVersion: 1, checkerVersion: CHECKER_VERSION, readOnly: true, projectId, projectName, root, digest: reportDigest,
     status: verdict.status, statusKey: verdict.statusKey, stack, summary: verdict.summary,
-    findings: verdict.findings, notices: collected.notices, limits, fileCount: collected.files.length,
+    findings: verdict.findings, notices: groupPathNotices(collected.notices), limits, fileCount: collected.files.length + collected.linkCount,
     totalBytes: collected.totalBytes, durationMs: Date.now() - started,
     disclaimer: "Static evidence only. No project code was executed, fetched, installed, or changed.",
   };
@@ -942,65 +684,9 @@ function resolveFinding(report, request = {}) {
   return finding ? { report, finding } : null;
 }
 
-function parseArgs(argv) {
-  const out = { json: false, projectPath: "", projectId: "", projectName: "" };
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--json") out.json = true;
-    else if (argv[i] === "--version") out.version = true;
-    else if (argv[i] === "--path") out.projectPath = argv[++i] || "";
-    else if (argv[i] === "--id") out.projectId = argv[++i] || "";
-    else if (argv[i] === "--name") out.projectName = argv[++i] || "";
-    else if (argv[i] === "--help" || argv[i] === "-h") out.help = true;
-  }
-  return out;
-}
-
-// Escape individual output lines before adding the renderer's own line breaks.
-function terminalText(text) {
-  return text.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u206f]/g,
-    ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"));
-}
-
-function humanReport(report) {
-  const lines = [
-    `Universal Project Doctor — ${report.projectName}`,
-    `${report.status} · ${report.stack.join(" / ")} · ${report.fileCount} files · ${report.durationMs}ms`,
-    `Confirmed ${report.summary.confirmed} · Likely ${report.summary.likely} · Recommendations ${report.summary.recommendation}`,
-    "",
-  ];
-  for (const finding of report.findings) {
-    lines.push(`[${finding.severity.toUpperCase()} · ${finding.confidence}] ${finding.message}`);
-    lines.push(`  ${finding.file}:${finding.line} · ${finding.category} · ${finding.code}`);
-    lines.push(`  Impact: ${finding.impact}`);
-    lines.push(`  Verify: ${finding.verify}`);
-    lines.push(`  Recommendation: ${finding.recommendation}`, "");
-  }
-  if (!report.findings.length) lines.push("No static findings in the bounded scan.", "");
-  if (report.notices.length) {
-    lines.push(`Scan boundaries (${report.notices.length})`);
-    for (const notice of report.notices) lines.push(`  [${notice.classification || notice.code}] ${notice.message}`);
-    lines.push("");
-  }
-  lines.push(report.disclaimer);
-  return lines.map(terminalText).join("\n");
-}
-
 if (require.main === module) {
-  const args = parseArgs(process.argv.slice(2));
-  if (args.version) {
-    console.log(CHECKER_VERSION);
-    process.exit(0);
-  }
-  if (args.help) {
-    process.stdout.write("Usage: node scripts/audit-project.js --path /absolute/project [--json] [--id id] [--name name]\n");
-    process.exit(0);
-  }
-  if (!args.projectPath) {
-    process.stderr.write("--path is required; refuse broad implicit scans.\n");
-    process.exit(2);
-  }
-  const report = auditProject(args);
-  process.stdout.write(args.json ? JSON.stringify(report, null, 2) + "\n" : humanReport(report) + "\n");
+  const { run } = require("./project-cli");
+  process.exitCode = run(process.argv.slice(2), auditProject, CHECKER_VERSION);
 }
 
 module.exports = { DEFAULT_LIMITS, auditProject, collectProject, humanReport, isIntentionalReferenceData, resolveFinding };

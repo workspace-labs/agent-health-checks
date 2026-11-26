@@ -1,5 +1,7 @@
 "use strict";
 
+const { watchFileReads } = require("./support/project-reads");
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -59,8 +61,10 @@ for (const output of ["build", "out", "dist"]) {
     const root = project(t, { "README.md": "", "package.json": manifest({ main: entry, bin: entry }) });
     const before = auditProject({ projectPath: root });
     assert.deepEqual(before.findings, []);
-    assert.deepEqual(notice(before, "package-entry-not-built"), ["main", "bin"].map(field =>
-      "package.json " + field + " entry " + entry + ": not built yet, cannot confirm."));
+    const unbuilt = before.notices.filter(item => item.code === "package-entry-not-built");
+    assert.equal(unbuilt.length, 1);
+    assert.equal(unbuilt[0].count, 2);
+    assert.ok(unbuilt[0].message.includes(entry));
     fs.mkdirSync(path.join(root, output));
     const after = auditProject({ projectPath: root });
     assert.deepEqual(after.findings.map(f => f.code).sort(), ["missing-package-bin", "missing-package-entry"]);
@@ -149,10 +153,8 @@ test("file contents can be unreadable while README, lockfile, entry and worker n
     "package.json": manifest({ main: "code/app.js", dependencies: { workbox: "1" } }),
     ...Object.fromEntries(files.map(name => [name, ""])),
   });
-  const readFile = fs.readFileSync;
-  t.mock.method(fs, "readFileSync", (file, ...args) => {
+  watchFileReads(t, file => {
     if (files.some(name => path.join(root, name) === file)) throw Object.assign(new Error("denied"), { code: "EACCES" });
-    return readFile(file, ...args);
   });
   const report = auditProject({ projectPath: root });
   assert.deepEqual(report.findings.filter(f =>
@@ -166,8 +168,10 @@ test("entry declarations outside the root are reported as unchecked", t => {
   fs.writeFileSync(path.join(root, "package.json"), manifest({ main: "../external-main.js", bin: absolute }));
   const report = auditProject({ projectPath: root });
   assert.deepEqual(report.findings, []);
-  assert.deepEqual(notice(report, "file-not-checked"), ["main entry ../external-main.js", "bin entry " + absolute].map(entry =>
-    "package.json " + entry + " was not checked because the scan was incomplete or the path could not be verified."));
+  const unchecked = report.notices.filter(item => item.code === "file-not-checked");
+  assert.equal(unchecked.length, 1);
+  assert.equal(unchecked[0].count, 2);
+  for (const entry of ["../external-main.js", absolute]) assert.ok(unchecked[0].message.includes(entry));
 });
 
 test("links to external files and output directories cannot confirm missing main or bin",
@@ -179,6 +183,8 @@ test("links to external files and output directories cannot confirm missing main
     const report = auditProject({ projectPath: root });
     assert.deepEqual(report.findings.filter(f => f.code === "missing-package-bin" || f.code === "missing-package-entry"), []);
     assert.deepEqual(notice(report, "package-entry-not-built"), []);
-    assert.deepEqual(notice(report, "file-not-checked"), ["main entry dist/real.js", "bin entry cli"].map(entry =>
-      "package.json " + entry + " was not checked because the scan was incomplete or the path could not be verified."));
+    const unchecked = report.notices.filter(item => item.code === "file-not-checked");
+    assert.equal(unchecked.length, 1);
+    assert.equal(unchecked[0].count, 2);
+    for (const entry of ["dist/real.js", "cli"]) assert.ok(unchecked[0].message.includes(entry));
   });

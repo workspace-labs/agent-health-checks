@@ -20,7 +20,7 @@ function readInstructions(dir) {
   return { checker, commands };
 }
 
-function run(command, cwd, env) {
+function run(command, cwd, env, expectedExit = 0) {
   assert.match(command, /^node "\$CHECKER"(?: --root "collection=\$COLLECTION"| --path "\$PROJECT")?(?: --json)?$/);
   // Run the published command with the same shell variables on both platforms.
   const windows = process.platform === "win32";
@@ -30,7 +30,7 @@ function run(command, cwd, env) {
     command + '; exit $LASTEXITCODE'] : ["-c", command];
   const result = spawnSync(shell, args, { cwd, env, encoding: "utf8" });
   assert.ifError(result.error);
-  assert.equal(result.status, 0, `${command}\n${result.stderr}`);
+  assert.equal(result.status, expectedExit, `${command}\n${result.stderr}`);
   return result.stdout;
 }
 
@@ -77,7 +77,7 @@ test("published skill commands run the bundled checkers from either working dire
     assert.deepEqual(names, ["audit-agent-skills", "default-sample"]);
     assert.equal(JSON.parse(skillReports[2]).skills[0].name, "explicit-sample");
 
-    const projectReports = projects.commands.map(cmd => run(cmd, cwd, { ...env, CHECKER: projects.checker }));
+    const projectReports = projects.commands.map(cmd => run(cmd, cwd, { ...env, CHECKER: projects.checker }, 2));
     assert.match(projectReports[0], /Needs attention/);
     assert.match(projectReports[0], /missing\.js/);
     const report = JSON.parse(projectReports[1]);

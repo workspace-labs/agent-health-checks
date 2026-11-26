@@ -8,7 +8,9 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { auditProject, humanReport, resolveFinding } = require("../skills/audit-project-health/scripts/audit-project");
 
-function temp(label) { return fs.mkdtempSync(path.join(os.tmpdir(), `project-doctor-${label}-`)); }
+const suiteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "project-doctor-tests-"));
+test.after(() => fs.rmSync(suiteRoot, { recursive: true, force: true }));
+function temp(label) { return fs.mkdtempSync(path.join(suiteRoot, label + "-")); }
 function put(root, rel, value) {
   const file = path.join(root, rel); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, value); return file;
 }
@@ -168,7 +170,7 @@ test("generated backup installs do not consume the project scan budget", () => {
   put(root, "main.js", "require('./taskdelete');\n");
   for (let i = 0; i < 8; i++) put(root, `mcp/.backup-install/node_modules-copy/${i}.js`, `export default ${i}\n`);
   put(root, "taskdelete.js", "module.exports = {};\n");
-  const report = auditProject({ projectPath: root, limits: { maxFiles: 3, maxTotalBytes: 4096, maxFileBytes: 1024, maxDurationMs: 1000 } });
+  const report = auditProject({ profile: "workspace", projectPath: root, limits: { maxFiles: 3, maxTotalBytes: 4096, maxFileBytes: 1024, maxDurationMs: 1000 } });
   assert.equal(report.fileCount, 3);
   assert.equal(report.findings.some((finding) => finding.code === "scan-limit"), false);
   assert.equal(report.findings.some((finding) => finding.code === "broken-relative-import"), false);
@@ -191,7 +193,7 @@ eval('fixture');
     put(root, `${dir}/.env`, "DO_NOT_READ=fixture-secret\n");
   }
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   const notices = report.notices.filter((notice) => notice.code === "workspace-artifact-excluded");
   const blockedCodes = new Set([
     "broken-relative-import", "debug-residue", "dynamic-code-execution", "empty-catch",
@@ -199,13 +201,14 @@ eval('fixture');
   ]);
   assert.equal(report.fileCount, 1);
   assert.equal(report.findings.some((finding) => blockedCodes.has(finding.code)), false);
-  assert.equal(notices.length, artifactDirs.length);
-  assert.deepEqual(notices.map((notice) => notice.message.match(/folder ([^;]+)/)[1]).sort(), artifactDirs.sort());
-  assert.deepEqual([...new Set(notices.map((notice) => notice.classification))].sort(), [
-    "workspace-install-backup", "workspace-recoverable-trash", "workspace-review-proof", "workspace-task-backup",
-  ]);
-  assert.match(humanReport(report), /Scan boundaries \(7\)/);
-  assert.match(humanReport(report), /workspace-review-proof.*\.proof-pipeline/);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].count, artifactDirs.length);
+  for (const [dir, classification] of [
+    [".backup-install", "workspace-install-backup"], [".backup-pipeline", "workspace-task-backup"],
+    [".proof", "workspace-review-proof"], [".proof-pipeline", "workspace-review-proof"],
+    [".trash", "workspace-recoverable-trash"],
+  ]) assert.ok(notices[0].message.includes(dir + " (" + classification + ")"));
+  assert.match(humanReport(report), /\.proof-pipeline/);
 });
 
 test("Workspace editor backup files are disclosed and excluded before every downstream check", () => {
@@ -224,14 +227,15 @@ eval('fixture');
   put(root, "README.md", readme);
   for (const name of backupNames) put(root, name, oversizedRisky);
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   const notices = report.notices.filter((notice) => notice.code === "workspace-artifact-excluded");
   const blockedCodes = new Set([
     "broken-relative-import", "debug-residue", "dynamic-code-execution", "empty-catch",
     "large-project-files", "oversized-text", "todo-concentration",
   ]);
-  assert.equal(notices.length, backupNames.length);
-  assert.deepEqual(notices.map((notice) => notice.message.match(/file ([^;]+)/)[1]).sort(), backupNames.slice().sort());
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].count, backupNames.length);
+  for (const name of backupNames) assert.ok(notices[0].message.includes(name));
   assert.deepEqual([...new Set(notices.map((notice) => notice.classification))], ["workspace-editor-backup"]);
   assert.equal(notices.every((notice) => notice.actionable === false), true);
   assert.equal(report.notices.some((notice) => notice.code === "oversized-text"), false);
@@ -255,13 +259,13 @@ eval('fixture');
   put(root, "notes.bakup", "notes kept as ordinary text\n");
   put(root, "src/config.json", `{"pad":"${"y".repeat(600 * 1024)}"}`);
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   const codes = new Set(report.findings.map((finding) => finding.code));
   assert.equal(report.notices.some((notice) => notice.code === "workspace-artifact-excluded"), false);
   assert.equal(report.fileCount, 4);
   for (const code of [
     "broken-relative-import", "debug-residue", "dynamic-code-execution", "empty-catch",
-    "oversized-text", "todo-concentration",
+    "todo-concentration",
   ]) assert.ok(codes.has(code), `expected lookalike/ordinary finding ${code}`);
   const oversized = report.notices.find((notice) => notice.code === "oversized-text");
   assert.equal(oversized.actionable, true);
@@ -274,8 +278,8 @@ test("skipped editor backups consume no scan budget and never hide ordinary sour
   put(root, "src/app.js", "export const value = 1;\n");
   for (let index = 0; index < 12; index += 1) put(root, `bulk-${index}.js.bak-20260822`, "x".repeat(4096));
 
-  const report = auditProject({ projectPath: root, limits: { maxFiles: 3, maxFileBytes: 1024, maxTotalBytes: 4096, maxDurationMs: 4000 } });
-  assert.equal(report.notices.filter((notice) => notice.code === "workspace-artifact-excluded").length, 12);
+  const report = auditProject({ profile: "workspace", projectPath: root, limits: { maxFiles: 3, maxFileBytes: 1024, maxTotalBytes: 4096, maxDurationMs: 4000 } });
+  assert.equal(report.notices.find((notice) => notice.code === "workspace-artifact-excluded").count, 12);
   assert.equal(report.notices.some((notice) => notice.code === "scan-limit"), false);
   assert.equal(report.findings.some((finding) => finding.code === "scan-limit"), false);
   assert.equal(report.fileCount, 2);
@@ -287,7 +291,7 @@ test("a backed-up secret file is still disclosed as secret-like, not silenced as
   put(root, "README.md", "# Secret ordering boundary\n");
   put(root, ".env.bak", "DO_NOT_READ=fixture-secret\n");
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   assert.ok(report.findings.some((finding) => finding.code === "secret-files-present"));
   assert.equal(report.notices.some((notice) => notice.classification === "workspace-editor-backup"), false);
   assert.doesNotMatch(JSON.stringify(report), /fixture-secret/);
@@ -309,7 +313,7 @@ new BrowserWindow({ webPreferences: { webSecurity: false, nodeIntegration: true,
 `);
   put(root, "demos/redesign-shell/delivery-after.png", "x".repeat(1024 * 1024 + 16));
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   assert.ok(report.stack.includes("Electron"));
   for (const code of [
     "broken-relative-import", "debug-residue", "dynamic-code-execution", "empty-catch",
@@ -358,7 +362,7 @@ try { throw new Error('fixture'); } catch {}
 `);
   put(root, "skills-library/example/templates/arbitrary-name.png", "x".repeat(1024 * 1024 + 16));
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   for (const code of ["debug-residue", "empty-catch", "large-project-files"]) {
     assert.equal(report.findings.some((finding) => finding.code === code), false, `template tree raised ${code}`);
   }
@@ -376,23 +380,23 @@ test("A `tmp/` directory is dropped before file collection, so changing a file t
   put(root, "README.md", "# Digest boundary\n");
   put(root, "package.json", JSON.stringify({ name: "digest-host", version: "1.0.0" }));
   put(root, "src/app.js", "module.exports = 1;\n");
-  const baseline = auditProject({ projectPath: root });
+  const baseline = auditProject({ profile: "workspace", projectPath: root });
 
   // tmp/ never reaches collection, so its file moves neither the digest nor the file count.
   put(root, "tmp/nested/ignored.js", "console.log('leftover');\n");
-  const afterTmp = auditProject({ projectPath: root });
+  const afterTmp = auditProject({ profile: "workspace", projectPath: root });
   assert.equal(afterTmp.digest, baseline.digest, "a tmp/ file must not move the project digest");
   assert.equal(afterTmp.fileCount, baseline.fileCount);
 
   // Both sample trees are still collected, so a change inside either one still moves the
   // digest the human compares two scans by.
   put(root, "demos/sample.js", "console.log('demo');\n");
-  const afterDemos = auditProject({ projectPath: root });
+  const afterDemos = auditProject({ profile: "workspace", projectPath: root });
   assert.notEqual(afterDemos.digest, afterTmp.digest, "a demos/ file must move the project digest");
   assert.equal(afterDemos.fileCount, baseline.fileCount + 1);
 
   put(root, "skills-library/example/templates/starter.tsx", "console.log('starter');\n");
-  const afterTemplates = auditProject({ projectPath: root });
+  const afterTemplates = auditProject({ profile: "workspace", projectPath: root });
   assert.notEqual(afterTemplates.digest, afterDemos.digest, "a skill templates/ file must move the project digest");
   assert.equal(afterTemplates.fileCount, baseline.fileCount + 2);
 
@@ -417,7 +421,7 @@ console.log("four");
   put(root, "main.js", "const { BrowserWindow } = require('electron');\nnew BrowserWindow({ webPreferences: { webSecurity: false } });\n");
   put(root, "hero.png", "x".repeat(1024 * 1024 + 16));
 
-  const report = auditProject({ projectPath: root });
+  const report = auditProject({ profile: "workspace", projectPath: root });
   const residue = report.findings.find((finding) => finding.code === "debug-residue");
   assert.ok(residue);
   assert.equal(residue.message, "12 debugger or console.log statements remain in source files.");
@@ -460,7 +464,7 @@ test("broken project symlinks are disclosed with a safe resolution code", { skip
   const notice = report.notices.find((item) => item.code === "symlink-unresolved");
   assert.ok(notice);
   assert.match(notice.message, /\(ENOENT\).*broken\.js/);
-  assert.ok(report.findings.some((finding) => finding.code === "symlink-unresolved"));
+  assert.equal(report.findings.some((finding) => finding.code === "symlink-unresolved"), false);
 });
 
 test("oversized reference data is notice-only while oversized source stays actionable", () => {
@@ -469,13 +473,13 @@ test("oversized reference data is notice-only while oversized source stays actio
   put(root, "reference/catalog.csv", `name,value\n${"alpha,beta\n".repeat(24)}`);
   put(root, "src/config.json", `{"payload":"${"x".repeat(256)}"}\n`);
   const report = auditProject({ projectPath: root, limits: { maxFiles: 20, maxTotalBytes: 4096, maxFileBytes: 64, maxDurationMs: 1000 } });
-  const dataNotice = report.notices.find((notice) => /reference\/catalog\.csv/.test(notice.message));
-  const sourceNotice = report.notices.find((notice) => /src\/config\.json/.test(notice.message));
-  assert.equal(dataNotice.actionable, false);
-  assert.equal(dataNotice.classification, "reference-data");
-  assert.equal(report.findings.some((finding) => /reference\/catalog\.csv/.test(finding.message)), false);
-  assert.equal(sourceNotice.actionable, true);
-  assert.ok(report.findings.some((finding) => finding.code === "oversized-text" && /src\/config\.json/.test(finding.message)));
+  const notices = report.notices.filter(notice => notice.code === "oversized-text");
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].count, 2);
+  assert.ok(notices[0].message.includes("reference/catalog.csv (reference-data)"));
+  assert.ok(notices[0].message.includes("src/config.json (unclassified-text)"));
+  assert.equal(notices[0].actionable, true);
+  assert.equal(report.findings.some(finding => finding.code === "oversized-text"), false);
 });
 
 test("declared build and distribution assets stay visible without inflating large-file findings", () => {
@@ -499,9 +503,11 @@ test("declared build and distribution assets stay visible without inflating larg
   put(root, "hero.png", large);
   const report = auditProject({ projectPath: root });
   const notices = report.notices.filter((notice) => notice.code === "intentional-large-asset");
-  assert.deepEqual(notices.map((notice) => notice.classification).sort(), [
-    "declared-build-icon", "distribution-archive", "icon-generation-source", "packaged-source-master",
-  ]);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].count, 4);
+  for (const classification of ["declared-build-icon", "distribution-archive", "icon-generation-source", "packaged-source-master"]) {
+    assert.ok(notices[0].message.includes(classification));
+  }
   const finding = report.findings.find((item) => item.code === "large-project-files");
   assert.ok(finding);
   assert.equal(finding.message, "1 project file exceeds 1 MiB; largest is hero.png.");
@@ -529,7 +535,8 @@ test("declared packaging-excluded human deliverables stay visible without hiding
 
   const report = auditProject({ projectPath: root });
   const notices = report.notices.filter((notice) => notice.classification === "declared-human-deliverable");
-  assert.equal(notices.length, 2);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].count, 2);
   assert.ok(notices.every((notice) => notice.actionable === false));
   assert.ok(notices.some((notice) => /output\/pdf\/guide-one\.pdf/.test(notice.message)));
   assert.ok(notices.some((notice) => /output\/pdf\/guide-two\.pdf/.test(notice.message)));

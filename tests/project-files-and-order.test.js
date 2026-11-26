@@ -1,5 +1,7 @@
 "use strict";
 
+const { watchFileReads } = require("./support/project-reads");
+
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -44,11 +46,7 @@ test("all protected regular files stay unread and the finding identifies every p
   fs.writeFileSync(path.join(root, "credentials"), "ordinary");
   const watched = new Set(names.map(name => path.join(fs.realpathSync(root), name)));
   const read = [];
-  const original = fs.readFileSync;
-  t.mock.method(fs, "readFileSync", function(filename, ...args) {
-    if (watched.has(filename)) read.push(filename);
-    return original.call(this, filename, ...args);
-  });
+  watchFileReads(t, filename => { if (watched.has(filename)) read.push(filename); });
   const report = auditProject({ projectPath: root });
   assert.deepEqual(read, []);
   assert.equal(report.totalBytes, Buffer.byteLength("readme") + Buffer.byteLength("ordinary"));
@@ -113,7 +111,7 @@ test("Czech and Estonian audits use the same code-unit order and finding IDs", t
     const cli = spawnSync(process.execPath, [checker, "--path", root, "--json"], {
       encoding: "utf8", env: { ...process.env, LC_ALL: locale, LANG: locale },
     });
-    assert.equal(cli.status, 0, cli.stderr);
+    assert.equal(cli.status, 2, cli.stderr);
     return JSON.parse(cli.stdout);
   }
   const cs = report("cs_CZ.UTF-8");

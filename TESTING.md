@@ -397,3 +397,58 @@ Each Windows job skipped the same 16 symbolic-link tests, listed below. All 16 p
 | `skill-doctor.test.js` | symlinks escaping a declared root are refused |
 | `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence |
 | `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding |
+
+### Project checker options and coverage (0.8.0, 2026-11-26)
+
+From the repository root, run the full tests with each requested Node binary. The focused commands below exercise both command-line forms, usage errors, refusal before reading, source order, link accounting, notice grouping, missing imports and eval spellings.
+
+```sh
+node --test --test-reporter=tap
+node --test tests/project-cli-options.test.js tests/project-source-budget.test.js tests/project-report-noise.test.js
+node --test tests/project-import-forms.test.js tests/project-source-rules.test.js tests/project-coverage.test.js tests/project-doctor-reading.test.js tests/project-doctor-context.test.js tests/project-doctor.test.js
+```
+
+**Full local suite.** Each of Node 20.20.2, 22.23.1, 24.22.1 and 26.13.1 passed 621/621 tests on macOS, with zero failures and zero skips. This includes the 559 tests carried forward from 0.7.0. Focused checks also covered file growth between inventory and opening, time spent listing a directory, and a filename disappearing after inventory. Read tracking covered both opening a descriptor and reading by pathname.
+
+**Before implementation.** The CLI and path tests produced 16 failures on v0.7.0. The source budget tests had six failures and one passing control. The five noise tests failed. Across the six profile, import and source-rule files, 29 cases failed and 161 passed. The 100-byte root README hid `src/app.js` on v0.7.0. Its one-byte control exposed the same `eval(x);` call.
+
+**CLI reproduction on Node 22.23.1.** File and link fixtures used temporary folders, with the home-folder cases run under a temporary home. The old checker required the module's `limits` property for a byte-bound comparison.
+
+| Input | 0.7.0 exit | 0.8.0 exit | 0.8.0 observation |
+|---|---:|---:|---|
+| Missing path target or path to a file | 0 | 1 | Unavailable report |
+| Confirmed missing relative import | 0 | 2 | Needs attention. The resolved-import control exits 0. |
+| Unknown `--jsno` | 0 | 1 | One diagnostic plus usage |
+| `--max-files 5` on 13 files | 0 | 0 | 5 files collected. Omitting it retains the default of 2,400. |
+| `--path=<folder>` | 2 | 0 | Same Healthy report as the space form |
+| `--path --json` | 0 | 1 | Missing value, also when a folder named `--json` exists |
+| Omit `--path` | 2 | 1 | Usage error. Help and version still exit 0. |
+| Home, its parent or its symlink | 0 | 1 | Refused before listing. A project under home exits 0. |
+| Duplicate missing import on one line | 0 | 2 | One finding and one ID. Two different imports or two source lines retain two IDs. |
+| Bracket or optional global eval call | 0 | 2 | Dynamic-code finding. Dotted global eval stays detected. Unrelated objects and inert text exit 0. |
+| 600 KiB HTML and extensionless zero-filled file | 0 | 0 | Healthy. Each path appears once. The latter is classified as binary. |
+| 200,000-byte budget and two 120,000-byte sources | CLI ignored limit | 0 | Watch. The unread-source finding names `b.js, z.js`. With room for all three sources, the eval finding exits 2. |
+| 100-byte budget, 100-byte root README, nested eval source | CLI ignored limit | 2 | Needs attention. Both the large README and its one-byte control leave the eval visible. |
+| 3,000 broken links, three ordinary files | 0 | 0 | 2,397 links charged to 2,400 file slots, one counted link notice and one scan-limit finding. Terminal output fell from 21,009 lines to 17. JSON fell from about 2 MB to about 2 KB. |
+| Ordinary project with Workspace-shaped paths | 0 | 2 | Checks `.trash/`, the backup file, demos and the skill template by default. The workspace profile exits 0 for the same fixture. |
+
+The real unreadable-directory control returned Unavailable and exit 1. The link-only regression fixture also checks all 2,400 admitted links in one counted notice, the first ten paths, fewer than 100 terminal lines and less than 100 KB of JSON.
+
+**Read-only app comparison.** Run the project checker from a temporary archive of `v0.7.0` and from this checkout. Use the same absolute project path for all three runs.
+
+```sh
+node skills/audit-project-health/scripts/audit-project.js --path "$APP" --json
+node skills/audit-project-health/scripts/audit-project.js --path "$APP" --profile workspace --json
+```
+
+| Checker and project profile | Exit | Status | Findings | Confirmed | Likely | Recommendations | High | Notices | Sources examined |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| v0.7.0 | 0 | Watch | 5 | 0 | 2 | 3 | 0 | 13 | 239 |
+| 0.8.0 workspace | 0 | Watch | 4 | 0 | 2 | 2 | 0 | 11 | 239 |
+| 0.8.0 default | 2 | Needs attention | 8 | 0 | 6 | 2 | 4 | 9 | 252 |
+
+The workspace run retained the large-file finding for the project brief PDF, three empty catches, the total-byte limit and 50 debug statements. The former fifth finding, `oversized-text` for `.tally-core.tap`, is now a notice. The priority change altered which files fit in the byte budget, so the report digest and the IDs derived from it changed. Both 0.8.0 runs read every eligible source discovered in the app.
+
+The default included the demo scripts. It found four high `electron-web-security` findings, for `demomeasure.js:16`, `demoshot.js:9`, `demotype.js:6` and `strip.js:39` under `demos/redesign-shell/_tools/`. The empty-catch count rose from 3 to 33, debug statements from 50 to 73, and files over 1 MiB from 1 to 14. The largest was `demos/redesign-shell/delivery-after.png`. The total-byte limit still applied. The app's own ignore rules excluded three Workspace folders under both profiles.
+
+**Skills parity.** From each checkout, run `node skills/audit-agent-skills/scripts/audit-skills.js --root skills --json` and again without `--root skills`. In both versions, the two bundled skills were Universal with zero findings and exit 0. On the same installed toolbox both checkers exited 2 with 84 skills, 56 mirrors, 372 findings, 22 Universal, 61 Needs review and one Broken. All 84 skill digests matched. The 0.7.0 release-day count above records an earlier toolbox snapshot.

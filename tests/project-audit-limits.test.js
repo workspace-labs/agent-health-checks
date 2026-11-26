@@ -39,11 +39,12 @@ test("a time stop during traversal cannot call an existing web manifest missing"
   });
   assert.deepEqual(auditProject({ path: root }).findings, []);
   const fileStop = auditProject({ path: root, limits: { maxFiles: 1 } });
-  assert.deepEqual(fileStop.findings.map(f => f.code), ["scan-limit"]);
+  assert.deepEqual(fileStop.findings.map(f => f.code), ["source-not-read", "scan-limit"]);
+  assert.ok(fileStop.findings[0].message.includes("public/sw.js"));
   clockOnListing(t, path.join(root, "public"), 51);
   const report = auditProject({ path: root, limits: { maxDurationMs: 50 } });
   assert.ok(report.notices.some(n => n.message === "Stopped after the 50ms time bound."));
-  assert.deepEqual(report.findings.map(f => f.code), ["scan-limit"]);
+  assert.deepEqual(report.findings.map(f => f.code), ["source-not-read", "scan-limit"]);
 });
 
 for (const [delay, expected] of [[12, []], [51, ["scan-limit"]]]) {

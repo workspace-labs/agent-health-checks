@@ -1,5 +1,7 @@
 "use strict";
 
+const { watchFileReads } = require("./support/project-reads");
+
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -50,7 +52,7 @@ test("clean JavaScript stays Healthy and lists the number of files examined", t 
 });
 
 test("mixed languages get one notice and no finding; source tests and samples do not count", t => {
-  const report = auditProject({ path: project(t, {
+  const report = auditProject({ profile: "workspace", path: project(t, {
     "src/app.js": "", "src/base.ts": "", "src/other.py": "", "src/more.py": "", "foo.go": "",
     "tests/app.js": "", "fixtures/test.ts": "", "src/demos/demo.ts": "",
   }) });
@@ -72,10 +74,8 @@ test("nested packages are named once, including unreadable and oversized manifes
     "packages/a/package.json": '{"main":"absent.js"}', "packages/b/package.json": "{",
     "packages/c/package.json": " ".repeat(512), "node_modules/pkg/package.json": "{}",
   });
-  const read = fs.readFileSync;
-  t.mock.method(fs, "readFileSync", (file, ...args) => {
-    if (String(file).endsWith(path.join("b", "package.json"))) throw new Error("fixture");
-    return read(file, ...args);
+  watchFileReads(t, file => {
+    if (file.endsWith(path.join("b", "package.json"))) throw new Error("fixture");
   });
   const report = auditProject({ path: root, limits: { maxFileBytes: 128 } });
   assert.deepEqual(boundary(report, "nested-packages-not-judged"), [
@@ -112,7 +112,7 @@ test("demos, skill templates, caches and nested dependencies are named together"
   const folders = ["src/demos", "skills-library/foo/templates", "lib/.cache", "pkg/.git", "lib/node_modules"];
   const files = {};
   for (const name of [...folders, "tests", "fixtures"]) files[name + "/code.js"] = "require('./missing');";
-  const report = auditProject({ path: project(t, files) });
+  const report = auditProject({ profile: "workspace", path: project(t, files) });
   assert.equal(report.statusKey, "healthy");
   assert.deepEqual(boundary(report, "folders-not-judged"), ["Code rules excluded 5 folders: lib/.cache, lib/node_modules, pkg/.git, skills-library/foo/templates, src/demos."]);
 });
@@ -169,12 +169,8 @@ test("the metadata reader never opens files beneath a Git-ignored Android folder
     "package.json": '{"dependencies":{"@capacitor/android":"1","@capacitor/core":"1"},"scripts":{"test":"node --test"}}',
     "capacitor.config.json": '{"appId":"test.app"}', [generated]: '{"appId":"test.app"}',
   });
-  const read = fs.readFileSync;
   const files = [];
-  t.mock.method(fs, "readFileSync", (file, ...args) => {
-    files.push(String(file));
-    return read(file, ...args);
-  });
+  watchFileReads(t, file => files.push(file));
   const report = auditProject({ path: root });
   assert.ok(!files.some(file => file.endsWith(path.join(...generated.split("/")))));
   assert.deepEqual(boundary(report, "git-ignored-folders"), ["Git ignore rules excluded 1 folder: android."]);
@@ -182,7 +178,6 @@ test("the metadata reader never opens files beneath a Git-ignored Android folder
 
 test("a deadline spent listing the root prevents later metadata reads", t => {
   const root = project(t, { "package.json": '{"scripts":{"test":"node --test"}}' });
-  const read = fs.readFileSync;
   const list = fs.readdirSync;
   const files = [];
   let clock = 0;
@@ -192,10 +187,7 @@ test("a deadline spent listing the root prevents later metadata reads", t => {
     clock = 20;
     return entries;
   });
-  t.mock.method(fs, "readFileSync", (file, ...args) => {
-    files.push(file);
-    return read(file, ...args);
-  });
+  watchFileReads(t, file => files.push(file));
   const report = auditProject({ path: root, limits: { maxDurationMs: 10 } });
   assert.ok(report.notices.some(n => n.message === "Stopped after the 10ms time bound."));
   assert.deepEqual(files, []);
@@ -206,7 +198,7 @@ test("a byte stop keeps observed names for ignored, sample and skipped folders",
     ".gitignore": "zzz-scratch/\n", "large/file.txt": "x".repeat(64),
     "zzz-scratch/app.js": "eval(value);", "vendor/app.js": "", "demos/item.js": "",
   });
-  const report = auditProject({ path: root, limits: { maxTotalBytes: 32 } });
+  const report = auditProject({ profile: "workspace", path: root, limits: { maxTotalBytes: 32 } });
   assert.ok(report.notices.some(n => n.code === "scan-limit"));
   assert.deepEqual(boundary(report, "git-ignored-folders"), ["Git ignore rules excluded 1 folder: zzz-scratch."]);
   assert.deepEqual(boundary(report, "folders-not-judged"), ["Code rules excluded 2 folders: demos, vendor."]);
@@ -255,4 +247,30 @@ test("a shell-only project still gets one Watch coverage finding", t => {
     ["code-not-examined", "Shell code was not examined."],
   ]);
   checkCoverage(report, "Code rules examined 0 JavaScript/TypeScript files. Other languages seen but not examined: Shell.");
+});
+
+test("only the workspace profile excludes owner layout", t => {
+  const dirs = [
+    ".backup-install", ".backup-pipeline", ".proof", ".proof-pipeline", ".trash",
+    ".pipeline", "demos", "skills-library/x/templates",
+  ];
+  const generated = [".git", "node_modules", "vendor", "dist", "build", "out", "tmp", "coverage", "target"];
+  const files = { "settings.bak": "settings", "settings.bak-2026": "old settings" };
+  for (const dir of [...dirs, ...generated]) files[dir + "/app.js"] = "require('./missing');";
+  files["demos/image.png"] = Buffer.alloc(1024 * 1024 + 1);
+  const root = project(t, files);
+  const generic = auditProject({ projectPath: root });
+  assert.deepEqual(generic.findings.filter(f => f.code === "broken-relative-import").map(f => f.file).sort(),
+    dirs.map(dir => dir + "/app.js").sort());
+  assert.ok(generic.findings.some(f => f.code === "large-project-files" && f.file === "demos/image.png"));
+  assert.equal(generic.fileCount, dirs.length + 4);
+  assert.deepEqual(boundary(generic, "folders-not-judged"), [
+    "Code rules excluded 9 folders: .git, build, coverage, dist, node_modules, out, target, tmp, vendor.",
+  ]);
+  assert.ok(!generic.notices.some(n => ["workspace-artifact-excluded", "non-production-large-asset"].includes(n.code)));
+
+  const workspace = auditProject({ projectPath: root, profile: "workspace" });
+  assert.equal(workspace.findings.length, 0);
+  assert.ok(workspace.notices.some(n => n.code === "non-production-large-asset"));
+  assert.ok(workspace.notices.some(n => n.code === "workspace-artifact-excluded"));
 });

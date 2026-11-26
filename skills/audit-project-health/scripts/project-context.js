@@ -14,7 +14,7 @@ function localPath(value) {
   return normalized === "." ? "" : normalized;
 }
 
-function projectContext(root, limits, notices = [], canRead = () => true) {
+function projectContext(root, limits, notices = [], canRead = () => true, profile) {
   const metadataLimit = Math.min(limits.maxFileBytes, limits.maxTotalBytes, 64 * 1024);
   const totalLimit = Math.min(limits.maxTotalBytes, 256 * 1024);
   const readLimit = Math.min(limits.maxFiles, 256);
@@ -101,7 +101,7 @@ function projectContext(root, limits, notices = [], canRead = () => true) {
   }
   function excludedDirectory(rel) {
     if (exclusions.has(rel)) return exclusions.get(rel);
-    if (capacitorAppId && /^\.tablet-backup\/[^/]+$/.test(rel)) {
+    if (profile === "workspace" && capacitorAppId && /^\.tablet-backup\/[^/]+$/.test(rel)) {
       const summary = json(rel + "/summary.json");
       if (summary?.package?.id === capacitorAppId && typeof summary.takenAt === "string" &&
           Number.isFinite(Date.parse(summary.takenAt)) && summary.copy && typeof summary.copy === "object" &&
@@ -130,10 +130,15 @@ function addLiteralIgnoreFolders(bytes, names) {
 function gitInfoExclude(root, limits, timeExpired) {
   const git = path.join(root, ".git");
   const info = path.join(git, "info");
-  const file = path.join(info, "exclude");
-  let descriptor;
   try {
     if (timeExpired() || !fs.lstatSync(git).isDirectory() || timeExpired() || !fs.lstatSync(info).isDirectory()) return null;
+    return readIgnoreFile(path.join(info, "exclude"), limits, timeExpired);
+  } catch { return null; }
+}
+
+function readIgnoreFile(file, limits, timeExpired) {
+  let descriptor;
+  try {
     if (timeExpired() || !fs.lstatSync(file).isFile() || timeExpired()) return null;
     descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
     if (timeExpired()) return null;
@@ -147,4 +152,4 @@ function gitInfoExclude(root, limits, timeExpired) {
   finally { if (descriptor !== undefined) fs.closeSync(descriptor); }
 }
 
-module.exports = { projectContext, gitInfoExclude, addLiteralIgnoreFolders };
+module.exports = { projectContext, gitInfoExclude, readIgnoreFile, addLiteralIgnoreFolders };

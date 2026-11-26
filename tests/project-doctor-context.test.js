@@ -94,7 +94,7 @@ test("many backup summaries cannot bypass the cumulative metadata read limit", (
     put(root, `${rel}/summary.json`, JSON.stringify({ package: { id: "com.example.app" }, takenAt: "2026-09-15T12:00:00Z", copy: {}, padding: "x".repeat(600) }));
     put(root, `${rel}/apk/app.js`, "require('./missing.js');\n");
   }
-  const report = auditProject({ projectPath: root, limits: { maxTotalBytes: 1024 } });
+  const report = auditProject({ projectPath: root, profile: "workspace", limits: { maxTotalBytes: 1024 } });
   assert.ok(report.findings.some((finding) => finding.code === "metadata-limit"));
   assert.ok(report.notices.filter((notice) => notice.classification === "verified-tablet-backup").length < 20);
 });
@@ -113,5 +113,6 @@ test("an archive-looking source filename keeps the oversized-source warning", (t
   const root = project(t);
   put(root, "src/app.apk.js", "x".repeat(1024 * 1024 + 1));
   const report = auditProject({ projectPath: root });
-  assert.ok(report.findings.some((finding) => finding.code === "oversized-text"));
+  assert.ok(report.notices.some(n => n.code === "oversized-text" && n.message.includes("src/app.apk.js")));
+  assert.ok(report.findings.some(f => f.code === "source-not-read" && f.message.includes("src/app.apk.js")));
 });

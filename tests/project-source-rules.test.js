@@ -95,3 +95,28 @@ for (const [label, source, pkg, reportsLogs] of [
     assert.deepEqual(report.findings.map(f => f.code), reportsLogs ? ["debug-residue"] : []);
   });
 }
+
+for (const call of [
+  "eval?.(x)", "(0, eval)?.(x)",
+  ...["window", "globalThis", "self", "global"].flatMap(name => [
+    name + '["eval"](x)', name + "['eval'](x)", name + ".eval?.(x)",
+    name + "?.eval?.(x)", name + '?.["eval"]?.(x)',
+  ]),
+]) {
+  test("dynamic code in executable source only: " + call, t => {
+    const inert = ["// " + call, "/* " + call + " */", JSON.stringify(call) + ";", "`" + call + "`;"].join("\n");
+    assert.deepEqual(audit(t, inert).findings, []);
+    const findings = audit(t, inert + "\n" + call).findings;
+    assert.deepEqual(findings.map(f => [f.code, f.line, f.message]), [
+      ["dynamic-code-execution", 5, "1 dynamic code execution primitive was found."],
+    ]);
+  });
+}
+
+test("bracket and optional calls on unrelated objects stay quiet", t => {
+  const source = [
+    'obj["eval"](x); obj.eval?.(x); page.$eval(x);',
+    'obj?.window?.eval?.(x); obj.window["eval"](x); fn(0, eval)?.(x);',
+  ].join("\n");
+  assert.deepEqual(audit(t, source).findings, []);
+});

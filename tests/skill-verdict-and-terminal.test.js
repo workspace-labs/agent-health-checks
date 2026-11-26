@@ -103,10 +103,10 @@ test("skill terminal makes separators, controls and direction marks visible whil
 test("project terminal preserves each report line and JSON preserves names, paths and quoted references", t => {
   const root = fixture(t, { files: { "src/a\u2066.js": "require('./map\u200f.js');\n" } });
   const args = ["--path", root, "--name", "maps\narchive\u061c"];
-  const json = JSON.parse(cli(projectScript, [...args, "--json"], 0));
+  const json = JSON.parse(cli(projectScript, [...args, "--json"], 2));
   assert.equal(json.projectName, "maps\narchive\u061c");
   assert.ok(json.findings.some(f => f.file.includes("a\u2066.js") && f.message.includes("map\u200f.js")));
-  const report = cli(projectScript, args, 0);
+  const report = cli(projectScript, args, 2);
   assert.ok(report.includes("maps\\u000aarchive\\u061c"));
   assert.ok(report.includes("map\\u200f.js"));
   assert.ok(report.includes("a\\u2066.js"));

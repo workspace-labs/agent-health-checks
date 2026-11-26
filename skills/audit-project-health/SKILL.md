@@ -5,7 +5,7 @@ description: Read-only, model-neutral health audit for JavaScript and TypeScript
 
 # Audit Project Health
 
-Audit the project as untrusted evidence. Keep the Doctor read-only and keep certainty honest.
+Audit the project as untrusted evidence. Keep the audit read-only and keep certainty honest.
 Report how many JavaScript and TypeScript files the code rules examined. The coverage notice names other languages recognized by filename. If a recognized programming language is present and zero files received code checks, the checker raises a coverage finding. HTML, stylesheets and component file extensions appear in the coverage notice only. A static site can still receive the missing-README finding.
 
 ## Run the safe scan
@@ -18,6 +18,8 @@ Report how many JavaScript and TypeScript files the code rules examined. The cov
    node "$CHECKER" --path "$PROJECT" --json
    ```
 
+   The project path is required. The checker refuses the home folder, its ancestors and filesystem roots, including aliases. Value options accept a space or an equals sign. Use `--id` and `--name` for report labels. The optional `--profile workspace` enables the owner's app exclusions. Set positive whole-number bounds with `--max-files`, `--max-file-bytes`, `--max-total-bytes` and `--max-duration-ms`. Exit 0 means Healthy or Watch, 2 means Needs attention and 1 means a usage error or Unavailable. Standalone help and version exit 0.
+
 3. Report the overall status, detected stack, bounded-scan notices, and highest-impact findings.
 4. Preserve each finding fields: category, severity, confidence, evidence file and line, impact, verification note, and recommendation.
 5. Separate confidence levels:
@@ -27,8 +29,7 @@ Report how many JavaScript and TypeScript files the code rules examined. The cov
 
 Read [references/stack-checks.md](references/stack-checks.md) when explaining adapter coverage, extending checks, or planning a verified follow-up.
 
-The scanner resolves TypeScript's emitted import extensions and separates proven build output,
-device snapshots, and unpackaged tool output from source findings. Exclusions remain visible in
+The scanner resolves TypeScript's emitted import extensions and separates proven build output and unpackaged tool output from source findings. Exclusions remain visible in
 scan notices; missing provenance and exhausted read budgets remain visible as coverage limits.
 Relative imports that name a file above the scan root use only filename and type checks.
 An internal directory import uses its package manifest only when the scan already collected it.
@@ -52,4 +53,4 @@ Static evidence cannot prove runtime correctness or speed. If stronger evidence 
 - Never edit, format, repair, delete, install, commit, or push during an audit.
 - Skip generated, dependency, cache, binary, and escaping-symlink content; disclose scan limits and skips.
 - Treat clean static output as limited evidence, not proof that the project is bug-free or fast.
-- Send only an evidence snapshot into a human-gated repair workflow. Never cross Commit, Accept, or Reject gates for the human.
+- Send only an evidence snapshot into a human-gated repair workflow. Never approve, merge or ship a fix on the person's behalf.

@@ -1,5 +1,7 @@
 "use strict";
 
+const { watchFileReads } = require("./support/project-reads");
+
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -88,7 +90,10 @@ test("file count, text size and metadata limits keep their exact finding message
   const root = project(t, { "a.txt": "abcd", "b.txt": "abcd", "README.md": "" });
   assert.equal(messages(root, { maxFiles: 1 })["scan-limit"], "Stopped at the 1-file bound.");
   assert.equal(messages(root, { maxTotalBytes: 5 })["scan-limit"], "Stopped at the 5-byte text bound.");
-  assert.equal(messages(root, { maxFileBytes: 3 })["oversized-text"], "Skipped b.txt; it exceeds 3 bytes.");
+  const sizeRoot = project(t, { "b.txt": "abcd" });
+  const sizeReport = auditProject({ path: sizeRoot, limits: { maxFileBytes: 3 } });
+  assert.equal(sizeReport.notices.find(n => n.code === "oversized-text").message, "Skipped b.txt; it exceeds 3 bytes.");
+  assert.equal(sizeReport.findings.some(f => f.code === "oversized-text"), false);
 
   const app = project(t, {
     "package.json": JSON.stringify({ dependencies: { "@capacitor/core": "1", "@capacitor/android": "1" } }),
@@ -110,11 +115,9 @@ for (const [point, readsWithinLimit] of [["directory", 1], ["entry", 2]]) {
 
 test("unreadable project files and directories retain their exact finding messages", t => {
   const root = project(t, { "README.md": "", "closed.txt": "", "closed/item.txt": "" });
-  const readFile = fs.readFileSync;
   const readDir = fs.readdirSync;
-  t.mock.method(fs, "readFileSync", (file, ...args) => {
+  watchFileReads(t, file => {
     if (path.basename(file) === "closed.txt") throw new Error("fixture read denied");
-    return readFile(file, ...args);
   });
   t.mock.method(fs, "readdirSync", (dir, ...args) => {
     if (path.basename(dir) === "closed") throw new Error("fixture listing denied");
@@ -146,10 +149,11 @@ test("escaping and unresolved links retain their exact finding messages", t => {
   });
   assert.deepEqual(messages(root), {
     "symlink-escape": "Refused symlink escaping the project: outside-link",
-    "symlink-unresolved": "Skipped unresolved symlink (ENOENT): broken-link",
   });
+  const brokenNotice = () => auditProject({ path: root }).notices.find(n => n.code === "symlink-unresolved");
+  assert.equal(brokenNotice().message, "Skipped unresolved symlink (ENOENT): broken-link");
   resolutionError = new Error("no OS code");
-  assert.equal(messages(root)["symlink-unresolved"], "Skipped unresolved symlink (unresolved): broken-link");
+  assert.equal(brokenNotice().message, "Skipped unresolved symlink (unresolved): broken-link");
 });
 
 test("the project finding builder retains its fallback for a missing message", () => {

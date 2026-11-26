@@ -231,6 +231,9 @@ function executableEvidence(source, electron, timeExpired) {
   const tokens = sourceTokens(source, timeExpired);
   if (!tokens) return null;
   const value = i => tokens[i]?.value;
+  // The tokenizer keeps the two punctuation marks in an optional chain separate.
+  const afterOptionalChain = i => value(i) === "?" && value(i + 1) === "." ? i + 2 : i;
+  const calledAt = i => value(afterOptionalChain(i)) === "(";
   for (let i = 0; i < tokens.length; i++) {
     if (i > 0 && i % 8192 === 0 && timeExpired()) return null;
     const { value: current, index } = tokens[i];
@@ -242,13 +245,19 @@ function executableEvidence(source, electron, timeExpired) {
       if (source[end] === ";" || source[end] === "\n" || end === source.length) debug.push(index);
     }
     if (current === "eval") {
-      const globalReceiver = previous === "." && globalEvalReceivers.has(value(i - 2)) && value(i - 3) !== ".";
-      const directCall = next === "(" && (previous !== "." || globalReceiver);
+      const directCall = previous !== "." && calledAt(i + 1);
       // The opening parenthesis must group an expression. In fn(0, eval)(x)
       // the second call invokes the function's return value.
       const indirectCall = previous === "," && value(i - 2) === "0" && tokens[i - 3]?.expressionStart &&
-        next === ")" && value(i + 2) === "(";
+        next === ")" && calledAt(i + 2);
       if (directCall || indirectCall) dynamic.push(index);
+    }
+    if (globalEvalReceivers.has(current) && previous !== ".") {
+      const property = next === "." ? i + 2 : afterOptionalChain(i + 1);
+      const dotted = property !== i + 1 && value(property) === "eval" && calledAt(property + 1);
+      const bracket = value(property) === "[" && ['"eval"', "'eval'"].includes(value(property + 1)) &&
+        value(property + 2) === "]" && calledAt(property + 3);
+      if (dotted || bracket) dynamic.push(tokens[bracket ? property + 1 : property].index);
     }
     if (current === "new" && next === "Function" && value(i + 2) === "(") dynamic.push(index);
     if (current === "require" && previous !== "." && next === "." && value(i + 2) === "main" &&

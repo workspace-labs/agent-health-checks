@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.8.0] - 2026-11-26
+
+- Project CLI exit codes now distinguish Healthy or Watch (0), Needs attention (2) and Unavailable or incorrect usage (1). Omitting `--path` previously exited 2. Unknown options, missing values and invalid limits are reported. All value options accept a space or an equals sign, and four limits can be set from the CLI.
+- The checker refuses the home folder, its ancestors and filesystem roots through the CLI and module. Unavailable findings now say “The checker cannot inspect or verify this folder.” and “Check that --path names an existing folder you can read.” This changes their finding IDs. The audit guide uses general review language.
+- Workspace layout exclusions are opt-in through `--profile workspace` or the module's `profile` option. The default checks those paths as ordinary content.
+- Runtime JavaScript and TypeScript receive the text budget first. A medium coverage finding identifies eligible sources missed by a limit. Links consume file slots. Size skips, binaries and broken links are reported as notices. Single-path notices share a count and up to ten examples. The terminal groups findings and keeps high findings and unread source visible.
+- Repeating the same unresolved import on one line now produces one finding. The dynamic-code check recognizes bracket access and optional calls to global eval.
+
+### Existing test expectations changed in 0.8.0
+
+**CLI status and diagnostics.** These four tests now expect exit 2 when a completed project report needs attention. Their evidence, locale and terminal-escaping checks still apply.
+
+- `published skill commands run the bundled checkers from either working directory`
+- `project evidence retains its field names, severity, confidence, wording, digest and IDs`
+- `Czech and Estonian audits use the same code-unit order and finding IDs`
+- `project terminal preserves each report line and JSON preserves names, paths and quoted references`
+
+The former `project CLI returns zero for Healthy, Watch and Unavailable, and two when the path is omitted` now checks exit 1 for an unavailable or omitted path, the two-line usage diagnostic, and the revised unavailable finding and its ID.
+
+**Workspace profile.** The following tests now select the profile explicitly to exercise the owner's layout and its lookalike controls.
+
+- `mixed languages get one notice and no finding; source tests and samples do not count`
+- `demos, skill templates, caches and nested dependencies are named together`
+- `a byte stop keeps observed names for ignored, sample and skipped folders`
+- `generated backup installs do not consume the project scan budget`
+- `a backed-up secret file is still disclosed as secret-like, not silenced as a backup`
+- `scratch demo trees raise no runtime-source or large-file findings`
+- `skill starter templates raise no runtime-source or large-file findings`
+- ``A `tmp/` directory is dropped before file collection, so changing a file there leaves both the file count and digest unchanged``
+- `close lookalikes outside the exclusions stay fully actionable`
+- `many backup summaries cannot bypass the cumulative metadata read limit`
+- `proven tablet snapshots are disclosed and excluded without hiding loose backup-folder source`
+- `tablet snapshot with <condition> remains inspected` for `missing timestamp`, `invalid timestamp`, `wrong app` and `missing copy metadata`
+- `tablet metadata without a real apk or extracted directory does not hide source`
+- `tablet <mode> metadata cannot exclude the snapshot` for `oversized` and `symlinked`
+
+Three more profile tests now verify a single counted notice for the excluded paths. These are `Workspace artifact folders are disclosed and excluded before every downstream check`, `Workspace editor backup files are disclosed and excluded before every downstream check`, and `skipped editor backups consume no scan budget and never hide ordinary source`. The profile test `editor-backup lookalikes stay scanned and ordinary oversized source stays actionable` now checks the oversized JSON path in its notice.
+
+**Unread source.** `a time stop during traversal cannot call an existing web manifest missing` now expects the unread source and the scan limit together. `an archive-looking source filename keeps the oversized-source warning` now verifies both the size notice and the unread JavaScript finding.
+
+**Size, binary and link notices.** These tests now verify the path and reason on the notice or its counted group.
+
+- `file count, text size and metadata limits keep their exact finding messages` checks the previous size wording on a single file's notice.
+- `escaping and unresolved links retain their exact finding messages` and `broken project symlinks are disclosed with a safe resolution code` check the unresolved-link notice and its resolution code. The escaping-link finding keeps its wording.
+- `proven Capacitor generated assets and cache consume no budget while native source stays inspected` now locates the oversized native file in the notices.
+- `oversized reference data is notice-only while oversized source stays actionable` now checks the count and both classifications on one size notice.
+- The former `an oversized manifest retains its coverage finding` now checks its size notice. The former `binary source and manifest files are named, images and fonts are quiet` now counts the binary sources, manifests, images and fonts in one notice and still checks the source coverage.
+- `declared build and distribution assets stay visible without inflating large-file findings` and `declared packaging-excluded human deliverables stay visible without hiding ordinary large files` now expect one notice with its count and examples.
+- `absent <output> is unbuilt, but an existing output with a missing entry is confirmed` for `build`, `out` and `dist` now checks a counted notice covering both entry declarations.
+- `entry declarations outside the root are reported as unchecked` and `links to external files and output directories cannot confirm missing main or bin` now verify both paths on one notice.
+
+**Test instrumentation.** The following tests now observe file opens as well as reads made directly by path, so their existing read-boundary assertions cover the new bounded reader.
+
+- `all protected regular files stay unread and the finding identifies every path`
+- `relative imports outside the scan use exact names without reading target contents`
+- `EACCES names the manifest read failure without claiming malformed JSON` and its `EIO` counterpart
+- `nested packages are named once, including unreadable and oversized manifests`
+- `the metadata reader never opens files beneath a Git-ignored Android folder`
+- `a deadline spent listing the root prevents later metadata reads`
+- `file contents can be unreadable while README, lockfile, entry and worker names are still verified`
+- `unreadable project files and directories retain their exact finding messages`
+
+The temporary projects in `project-doctor.test.js` now share a directory removed at the end of the suite.
+
 ## [0.7.0] - 2026-11-26
 
 - A structural error still makes a skill Broken. Open safety evidence now produces Needs review even alongside a personal path or a finding in one product profile. A personal path on its own produces Workspace-specific.
