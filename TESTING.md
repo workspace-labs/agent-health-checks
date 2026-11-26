@@ -26,6 +26,41 @@ From the repository root, run `node --test`. These macOS runs used a temporary h
 
 The v0.9.0 suite passed 649 tests and left 15 fixture directories in an initially empty temporary directory. On 0.10.0 the actual system temp directory contained 34,322 entries before and after the final Node 20 run, with zero names added or removed. Each of the other three full runs used a fresh temporary directory and left it empty.
 
+### GitHub Actions for 0.10.0
+
+All nine jobs passed on commit `f6970a7`. Each cell shows **passed / skipped** out of 670 tests. Every job had zero failures. [GitHub Actions run 45754206834](https://github.com/workspace-labs/agent-health-checks/actions/runs/45754206834)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 670 / 0 | 670 / 0 | 670 / 0 |
+| Ubuntu Linux | 669 / 1 | 669 / 1 | 669 / 1 |
+| Windows | 652 / 18 | 652 / 18 | 652 / 18 |
+
+The skip lists match 0.9.0 on all three Node versions. Each Ubuntu job skipped `the refusal recognizes alternate home spelling on case-insensitive volumes` because the runner uses a case-sensitive filesystem. That test passed on macOS and Windows. [Ubuntu Node 20 job](https://github.com/workspace-labs/agent-health-checks/actions/runs/45754206834/job/139688875761)
+
+Each Windows job skipped the following 18 symbolic-link tests. All 18 passed on macOS and Ubuntu. [Windows Node 20 job](https://github.com/workspace-labs/agent-health-checks/actions/runs/45754206834/job/139688875766)
+
+| Test file under `tests/` | Test skipped on Windows |
+|---|---|
+| `project-coverage.test.js` | a symlinked info directory cannot supply ignore rules |
+| `project-doctor-context.test.js` | ordinary in-project links stay visible without duplicating findings from their target |
+| `project-doctor-reading.test.js` | TypeScript substitution refuses a matching source symlink escaping the project |
+| `project-doctor-reading.test.js` | tablet symlinked metadata cannot exclude the snapshot |
+| `project-doctor.test.js` | scan bounds and escaping symlinks remain visible |
+| `project-doctor.test.js` | broken project symlinks are disclosed with a safe resolution code |
+| `project-entry-checks.test.js` | links to external files and output directories cannot confirm missing main or bin |
+| `project-import-resolution.test.js` | imports resolve internal file and directory links and refuse links crossing the project boundary |
+| `project-import-resolution.test.js` | absolute internal links resolve through the spelling used to open the project |
+| `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit |
+| `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing |
+| `project-report-noise.test.js` | 3000 broken links respect the file bound and fit in one ten-example notice |
+| `project-report-noise.test.js` | a lone broken link keeps its path and reason and a valid internal link stays a distinct notice |
+| `skill-doctor.test.js` | symlinks escaping a declared root are refused |
+| `skill-doctor.test.js` | broken skill symlinks are explicit safety findings |
+| `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest |
+| `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence |
+| `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding |
+
 ### Read-only checks
 
 Run `node --test tests/checker-source-policy.test.js tests/checker-read-only.test.js` for the nine focused checks. The source controls cover disallowed imports, write-capable filesystem calls, process launches and network APIs. The command tests give each checker a script, an executable and three install hooks that lead to a marker file. Each command ran normally and under Node’s permission switch with only filesystem reads granted. Both reports parsed, the marker stayed absent and the fingerprint of names, bytes, modes and modification times held. The controls deliberately ran the marker script, changed a fixture file and attempted a permission-denied write. All nine passed on every version above.
