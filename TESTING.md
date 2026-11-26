@@ -11,6 +11,24 @@ node --test
 
 Run from the repository root. The suite uses Node’s built-in test runner and creates its fixtures in the system temporary directory. See the dated runs below for the exact versions tested.
 
+## Step 8 Part 2 · Fix round 1 · 0.13.0 · 2026-11-26
+
+The baseline at `1678b71` passed 873/873 tests on Node 20.20.2. All five review rows reproduced before either rule changed. On Apple silicon macOS, the corrected suite passed **886/886** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1** with `node --test --test-concurrency=2 --test-reporter=tap`. All four runs had zero failures, skips and cancellations. Each left its temporary home and scratch directory empty.
+
+| Review row | Baseline result | Corrected CLI result |
+|---|---|---|
+| F1a · `Bash(*:*)` | Missed the unrestricted grant | `unrestricted-shell-grant`, exit 2 |
+| F1b · `Bash(:*)` | Missed the unrestricted grant | `unrestricted-shell-grant`, exit 2 |
+| F1c · `Bash( * )` | Missed the unrestricted grant | `unrestricted-shell-grant`, exit 2 |
+| F2a · a comment containing 60 equals signs | Counted one hidden comment | Zero hidden comments, exit 0 |
+| F2b · a divider and sentence inside one comment | Showed 60 equals signs | Counted one comment and previewed the first 60 characters starting at the sentence, exit 0 |
+
+`skill-frontmatter-powers.test.js` also covers empty and space-only Bash scopes. Both produced the broad-grant finding. The CLI kept `Bash(git status:*)`, `Bash(npm run *)` and `BashOutput` clear of that finding and exited 0.
+
+`skill-safety-markdown.test.js` checks decoration followed by a separate Assistant comment (one finding at the second comment), an Arabic sentence (one finding), digits alone (zero findings), and a preview starting at a Unicode digit when the comment also contains a letter. Additional fixtures check the 39/40-code-point boundary and escaping within a preview.
+
+**Read-only default toolbox.** Both scans reported 80 unique skills, 56 identical mirrors, 38 Universal, 42 Needs review, zero in every other status, 223 findings and exit 2. Only the `deep-research-pro` message at `templates/report_template.md:3` changed. The old message counted 46 comments and showed a divider. The new message reads `44 comment(s) hidden from previews; first: PROGRESSIVE FILE ASSEMBLY STRATEGY (2025 - Unlimited Length)`. All 222 other findings matched field for field. Apart from the generation timestamp, that message was the only difference between the complete compact JSON reports.
+
 ## Step 8 Part 2 · 0.13.0 · 2026-11-26
 
 The clean `v0.12.0` baseline at `c77025d` passed 800 tests on macOS. Each new rule first failed against that baseline with its positive fixture. The info severity and the revised exit-code list also failed their new contract tests before implementation.

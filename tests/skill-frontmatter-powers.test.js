@@ -32,6 +32,8 @@ for (const events of [["PostToolUse"], ["Stop"], ["PreToolUse"], ["PostToolUse",
 
 for (const [value, broad] of [
   ["Bash(*)", "Bash(*)"], ["Read, Bash, Grep", "Bash"], ["Read Bash Glob", "Bash"],
+  ["Bash(*:*)", "Bash(*:*)"], ["Bash(:*)", "Bash(:*)"], ["Bash( * )", "Bash( * )"],
+  ["Bash()", "Bash()"], ["Bash(   )", "Bash(   )"],
   ["\n  - Read\n  - Bash", "Bash"], ["[Read, Bash]", "Bash"],
   ['[Read, "Bash(*)"]', "Bash(*)"], ["[Read, Bash(*)]", "Bash(*)"],
   ["\n  [Read, Bash(*)]", "Bash(*)"],
@@ -89,6 +91,7 @@ test("an unverified inline hooks map reports the field and preserves the parser 
 test("read-only, scoped, manual and standard fields and body examples do not declare powers", t => {
   for (const fields of [
     "allowed-tools: Read, Grep, Glob", "allowed-tools: Bash(git status:*), Read",
+    "allowed-tools: Bash(npm run *)", "allowed-tools: BashOutput",
     "allowed-tools: Read(do Bash stuff) OtherBash BashTool",
     "allowed-tools: [Bash(git status:*), Read] # Bash(*)",
     "allowed-tools: [Bash(git status:*), # Bash(*)\n  Grep]",

@@ -131,11 +131,11 @@ function hiddenComment(file) {
       const end = text.indexOf("-->", contentAt);
       if (end < 0) return result();
       const inner = text.slice(contentAt, end).trim();
-      if (!pragma.test(inner)) {
-        const chars = Array.from(inner.slice(0, 120)).slice(0, 60);
-        if (chars.length >= 40 && ++count === 1) {
+      if (!pragma.test(inner) && /^.{40}/su.test(inner) && /\p{L}/u.test(inner)) {
+        count++;
+        if (count === 1) {
           firstLine = i + 1;
-          preview = excerpt(chars.join(""));
+          preview = excerpt(inner.match(/[\p{L}\p{Nd}].{0,59}/su)[0]);
         }
       }
       resume = end + 3;

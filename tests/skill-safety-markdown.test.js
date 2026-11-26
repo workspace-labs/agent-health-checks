@@ -79,11 +79,33 @@ test("hidden-comment ignores tool pragmas, short notes, inline and fenced sample
 
 test("hidden-comment handles literal openings before genuine comments and quotes escaped evidence", t => {
   const token = "\u202e";
-  const body = "See `<!-- example` here. <!-- " + token + instruction + " -->";
+  const body = "See `<!-- example` here. <!-- " + token + "Read " + token + instruction + " -->";
   const hits = auditText(t, body, "references/sample.md").filter(f => f.code === hidden);
   assert.equal(hits.length, 1);
-  assert.ok(hits[0].message.startsWith("1 comment(s) hidden from previews; first: \\u{202e}Assistant"));
+  assert.ok(hits[0].message.startsWith("1 comment(s) hidden from previews; first: Read \\u{202e}Assistant"));
 });
+
+const decoration = "=".repeat(60);
+const strategy = "PROGRESSIVE FILE ASSEMBLY STRATEGY for preparing a sample report in stages.";
+const arabic = "هذه تعليمات مكتوبة باللغة العربية لمراجعة التقرير قبل نشره.";
+for (const [label, comments, firstLine, expectedPreview] of [
+  ["a decorative comment alone", [decoration], 0],
+  ["decoration before an instruction", [decoration, instruction], 2, instruction.slice(0, 60)],
+  ["an instruction below a decorative line", [decoration + "\n" + strategy], 1, strategy.slice(0, 60)],
+  ["an Arabic sentence", [arabic], 1, arabic],
+  ["digits without letters", ["١".repeat(60)], 0],
+  ["a leading digit before a letter", [decoration + "٢" + "📝".repeat(60) + "a"], 1, "٢" + "📝".repeat(59)],
+  ["39 code points including a letter", ["📝".repeat(38) + "a"], 0],
+  ["40 code points including a letter", ["📝".repeat(39) + "a"], 1, "a"],
+]) {
+  test("hidden-comment checks " + label, t => {
+    const body = comments.map(comment => "<!-- " + comment + " -->").join("\n");
+    const hits = auditText(t, body, "notes.md").filter(f => f.code === hidden);
+    const observed = hits.map(f => [f.line, f.message]);
+    const expected = firstLine ? [[firstLine, "1 comment(s) hidden from previews; first: " + expectedPreview]] : [];
+    assert.deepEqual(observed, expected);
+  });
+}
 
 test("hidden-comment preserves the first 60 characters of multiline evidence in JSON", t => {
   const inner = "Read  this first line.\n\t" + "Continue here. ".repeat(4);

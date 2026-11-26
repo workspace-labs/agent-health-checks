@@ -15,7 +15,7 @@ function broadGrant(tools) {
       else if (ch === ")" && depth) depth--;
       else if (i === grants.length || (!depth && (ch === "," || /\s/.test(ch)))) {
         const token = grants.slice(start, i);
-        if (token === "Bash" || token === "Bash(*)") return token;
+        if (/^Bash(?:\([ *:]*\))?$/.test(token)) return token;
         start = i + 1;
       }
     }
