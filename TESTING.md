@@ -29,6 +29,18 @@ All 13 control checks stayed quiet. These covered the England, Scotland and Wale
 
 The read-only default toolbox scan reported **80 unique skills, 56 identical mirrors, 38 Universal, 42 Needs review and 216 findings**. All four other status counts were zero. Both terminal and JSON runs exited 2. Excluding the timestamp, the full JSON report matched the one from `d2f54a9`, including the same three Part 1 findings in `security-review`.
 
+### GitHub Actions for 0.12.0
+
+All nine jobs passed on commit `3b80b47`. Each cell shows **passed / skipped** out of 800 tests. All 17 fix-round tests passed in every job. [GitHub Actions run 45853288604](https://github.com/workspace-labs/agent-health-checks/actions/runs/45853288604)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 800 / 0 | 800 / 0 | 800 / 0 |
+| Ubuntu Linux | 799 / 1 | 799 / 1 | 799 / 1 |
+| Windows | 782 / 18 | 782 / 18 | 782 / 18 |
+
+Ubuntu skipped the alternate-home-spelling check because the runner uses a case-sensitive filesystem. Windows skipped the same 18 symbolic-link tests listed under 0.11.0. Each Windows job also verified the README PowerShell installation and the second-install overwrite refusal. [Ubuntu job](https://github.com/workspace-labs/agent-health-checks/actions/runs/45853288604/job/140024972954) · [Windows job](https://github.com/workspace-labs/agent-health-checks/actions/runs/45853288604/job/140024972841) · [Detailed skip list](#github-actions-for-0110)
+
 ## Step 8 Part 1 · 0.12.0 · 2026-11-26
 
 On Apple silicon macOS, `node --test --test-concurrency=2 --test-reporter=tap` passed **783 of 783 tests** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1**. There were zero failures, cancellations or skips. Each run finished with its temporary home and temporary-file directory empty.
