@@ -39,9 +39,45 @@ During the work, the default inventory went from 81 to 80 unique skills as the s
 
 The other three status counts were zero in both reports. No skill changed status. The only finding removed was `deep-reference` on `hidden-prompt-library/DROPPED.md`, which the guide names directly.
 
-### Windows install coverage
+### GitHub Actions for 0.11.0
 
-The Windows Node 20, 22 and 24 jobs each extract the PowerShell block from this checkout's README, run it with a temporary `HOME` and `USERPROFILE`, and compare both installed guides and checker scripts with the originals. They mark both installed guides, run the block again, require the expected refusal and verify both markers survive. Local verification covered workflow structure and README block extraction with LF and CRLF. Execution on Windows awaits the authorized push and hosted run.
+All nine jobs passed on commit `9d98ecb`. Each cell shows **passed / skipped** out of 690 tests. Every job had zero failures. [GitHub Actions run 45760847132](https://github.com/workspace-labs/agent-health-checks/actions/runs/45760847132)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 690 / 0 | 690 / 0 | 690 / 0 |
+| Ubuntu Linux | 689 / 1 | 689 / 1 | 689 / 1 |
+| Windows | 672 / 18 | 672 / 18 | 672 / 18 |
+
+The skip lists matched 0.10.0 on all three Node versions. Each Ubuntu job skipped `the refusal recognizes alternate home spelling on case-insensitive volumes` because its filesystem is case-sensitive. The test passed on macOS and Windows. [Ubuntu job log](https://github.com/workspace-labs/agent-health-checks/actions/runs/45760847132/job/139710212014)
+
+<details>
+<summary>18 symbolic-link tests skipped on each Windows runner and passed on macOS and Ubuntu</summary>
+
+| Test file under `tests/` | Test skipped on Windows |
+|---|---|
+| `project-coverage.test.js` | a symlinked info directory cannot supply ignore rules |
+| `project-doctor-context.test.js` | ordinary in-project links stay visible without duplicating findings from their target |
+| `project-doctor-reading.test.js` | TypeScript substitution refuses a matching source symlink escaping the project |
+| `project-doctor-reading.test.js` | tablet symlinked metadata cannot exclude the snapshot |
+| `project-doctor.test.js` | scan bounds and escaping symlinks remain visible |
+| `project-doctor.test.js` | broken project symlinks are disclosed with a safe resolution code |
+| `project-entry-checks.test.js` | links to external files and output directories cannot confirm missing main or bin |
+| `project-import-resolution.test.js` | imports resolve internal file and directory links and refuse links crossing the project boundary |
+| `project-import-resolution.test.js` | absolute internal links resolve through the spelling used to open the project |
+| `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit |
+| `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing |
+| `project-report-noise.test.js` | 3000 broken links respect the file bound and fit in one ten-example notice |
+| `project-report-noise.test.js` | a lone broken link keeps its path and reason and a valid internal link stays a distinct notice |
+| `skill-doctor.test.js` | symlinks escaping a declared root are refused |
+| `skill-doctor.test.js` | broken skill symlinks are explicit safety findings |
+| `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest |
+| `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence |
+| `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding |
+
+</details>
+
+The README PowerShell installation step passed on all three Windows runners. Each ran the published commands in a temporary home, verified both installed guides and checker scripts, then confirmed that a second run refused to overwrite either copy. [Windows Node 20](https://github.com/workspace-labs/agent-health-checks/actions/runs/45760847132/job/139710211870) · [Windows Node 22](https://github.com/workspace-labs/agent-health-checks/actions/runs/45760847132/job/139710211949) · [Windows Node 24](https://github.com/workspace-labs/agent-health-checks/actions/runs/45760847132/job/139710211972)
 
 ## Step 7 Part 1 · 0.10.0 · 2026-11-26
 
