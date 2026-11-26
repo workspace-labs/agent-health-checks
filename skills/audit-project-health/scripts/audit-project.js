@@ -389,8 +389,10 @@ function auditProject(options = {}) {
   try {
     const stat = fs.statSync(requested);
     if (!stat.isDirectory()) throw new Error("Target is not a directory");
-    root = fs.realpathSync.native(requested);
-    if (root === path.parse(root).root || inside(root, fs.realpathSync.native(os.homedir()))) {
+    root = fs.realpathSync(requested);
+    // Compare native spellings for refusal while preserving the scan and report path.
+    const nativeRoot = fs.realpathSync.native(root);
+    if (nativeRoot === path.parse(nativeRoot).root || inside(nativeRoot, fs.realpathSync.native(os.homedir()))) {
       return unavailable("This folder is too broad to audit. Name the project folder itself.", "project-root-refused");
     }
     rootEntries = fs.readdirSync(root, { withFileTypes: true });
