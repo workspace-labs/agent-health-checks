@@ -184,3 +184,34 @@ test("hidden non-directory links keep an otherwise empty wrapper unjudged", t =>
   assert.deepEqual(report.skills, []);
   assert.equal(report.roots[0].notSearched, undefined);
 });
+
+test("coverage skips a loop to the location's parent and an alias to a counted skill", t => {
+  const context = fixture(t);
+  const plugins = path.join(context.home, ".claude", "plugins");
+  const skill = path.join(plugins, "maps");
+  install(skill);
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  fs.symlinkSync(skill, path.join(plugins, "maps-alias"), linkType);
+  const loop = path.join(plugins, "parent-loop");
+  fs.symlinkSync(path.dirname(plugins), loop, linkType);
+
+  const report = moduleReport(context, `
+    // Reproduce a runtime that lists junctions as directories.
+    const read = fs.Dir.prototype.readSync;
+    fs.Dir.prototype.readSync = function() {
+      const entry = read.call(this);
+      if (entry && ["maps-alias", "parent-loop"].includes(entry.name)) {
+        entry.isDirectory = () => true;
+        entry.isSymbolicLink = () => false;
+      }
+      return entry;
+    };
+    // Exercise the real-path backstop when even lstat reports a plain folder.
+    const lstat = fs.lstatSync;
+    fs.lstatSync = (file, ...args) => file === ${JSON.stringify(loop)}
+      ? fs.statSync(file, ...args) : lstat(file, ...args);
+  `);
+  assert.deepEqual(report.coverage, [
+    { path: path.join("~", ".claude", "plugins"), kind: "plugin", count: 1, partial: false },
+  ]);
+});

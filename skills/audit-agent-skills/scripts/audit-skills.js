@@ -1242,11 +1242,23 @@ function discoverInstalls(context, add, links) {
 
 function countSkillNames(folder, deadline) {
   let count = 0, partial = false;
+  let rootReal;
   const pending = [folder];
   while (pending.length && Date.now() < deadline) {
     let directory;
     try {
-      directory = fs.opendirSync(pending.pop());
+      const current = pending.pop();
+      if (current === folder) {
+        rootReal = fs.realpathSync.native(folder);
+      } else {
+        // On Windows a junction can appear as an ordinary directory in a listing.
+        if (fs.lstatSync(current).isSymbolicLink()) continue;
+        const real = fs.realpathSync.native(current);
+        const expected = path.join(rootReal, path.relative(folder, current));
+        // Skip escapes as well as aliases to directories already inside this location.
+        if (!inside(rootReal, real) || path.relative(expected, real) !== "") continue;
+      }
+      directory = fs.opendirSync(current);
       while (Date.now() < deadline) {
         const entry = directory.readSync();
         if (!entry) break;
