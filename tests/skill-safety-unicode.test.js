@@ -8,7 +8,8 @@ const code = "hidden-characters";
 const suggestion = "Open the file in a hex view; remove the characters unless they are ordinary writing.";
 const tags = ascii => Array.from(ascii, letter => String.fromCodePoint(0xe0000 + letter.charCodeAt(0))).join("");
 const hiddenSentence = tags("inert fixture text: this sentence cannot be seen by a human reviewer");
-const flag = "\u{1f3f4}" + tags("gbeng") + "\u{e007f}";
+const tagFlag = code => "\u{1f3f4}" + tags(code) + "\u{e007f}";
+const flag = tagFlag("gbeng");
 
 const examples = [
   ["tags in the guide body", "SKILL.md", "Notes\nKeep the summary short." + hiddenSentence, 6, 68, "Unicode tags"],
@@ -23,6 +24,10 @@ const examples = [
   ["supplementary variation selectors", "notes.txt", "Done.✨" +
     Array.from({ length: 12 }, (_, i) => String.fromCodePoint(0xe0100 + i)).join(""), 1, 12, "variation selectors"],
   ["mixed variation selector ranges", "notes.txt", "Text\n\ufe00\u{e01ef}\ufe0f", 2, 3, "variation selectors"],
+  ["30 tag letters inside a black flag", "notes.txt", "Notes\nHi " + tagFlag("inert".repeat(6)) + " there", 2, 31, "Unicode tags"],
+  ["flag with only a country prefix", "notes.txt", tagFlag("gb"), 1, 3, "Unicode tags"],
+  ["flag with four subdivision letters", "notes.txt", tagFlag("gbabcd"), 1, 7, "Unicode tags"],
+  ["digit in the country prefix", "notes.txt", tagFlag("g1a"), 1, 4, "Unicode tags"],
   ["unclosed flag", "notes.txt", "\u{1f3f4}" + tags("gbeng"), 1, 5, "Unicode tags"],
   ["punctuation in a flag", "notes.txt", "\u{1f3f4}" + tags("a!") + "\u{e007f}", 1, 3, "Unicode tags"],
   ["tags adjoining a valid flag", "notes.txt", "\u{e0000}" + flag + "\u{e007f}", 1, 2, "Unicode tags"],
@@ -48,6 +53,10 @@ test("hidden-characters combines kinds across lines at the first affected line",
 const controls = [
   ["family emoji and keycap", "Family: 👨\u200d👩\u200d👧 done ✔\ufe0f and 1\ufe0f\u20e3 first."],
   ["England flag", flag + " England"],
+  ["Scotland flag", tagFlag("gbsct")],
+  ["Wales flag", tagFlag("gbwls")],
+  ["one subdivision digit", tagFlag("gb0")],
+  ["three subdivision letters and digits", tagFlag("gb9a0")],
   ["Arabic directional marks and Persian non-joiner", "التقرير الأسبوعي\u200f (PDF)\u200e می\u200cخواهم."],
   ["initial BOM", "\ufeffOrdinary text."],
   ["plain text", "Ordinary text."],

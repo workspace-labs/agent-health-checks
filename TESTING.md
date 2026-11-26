@@ -11,6 +11,24 @@ node --test
 
 Run from the repository root. The suite uses Node’s built-in test runner and creates its fixtures in the system temporary directory. See the dated runs below for the exact versions tested.
 
+## Step 8 Part 1 · Fix round 1 · 0.12.0 · 2026-11-26
+
+The baseline at `d2f54a9` passed its 783 tests on Node 20.20.2. Before the fixes, each of the seven review examples missed its expected finding. On the corrected code, **800 of 800 tests passed** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1** on Apple silicon macOS. The command was `node --test --test-concurrency=2 --test-reporter=tap`. All four runs finished with zero failures, cancellations or skips and empty temporary home and scratch directories.
+
+| Review row | Input checked as text | Observed finding |
+|---|---|---|
+| F1 | A black flag encloses 30 tag letters and a cancel tag | `hidden-characters` counts 31 on line 1 |
+| F2a | A download is piped to `/bin/bash` | `download-and-run` |
+| F2b | A download is piped to `/usr/bin/env bash` | `download-and-run` |
+| F2c | A base64 decode is piped to `/bin/sh` | `decode-and-run` |
+| F3a | A parenthesized `irm` download is passed to `iex` | `download-and-run` |
+| F3b | A nested `DownloadString` call is passed to `iex` | `download-and-run` |
+| F3c | `Invoke-Expression` uses the content of a parenthesized `Invoke-WebRequest` | `download-and-run` |
+
+All 13 control checks stayed quiet. These covered the England, Scotland and Wales flags, three ordinary pipe destinations tested with both pipeline rules, local PowerShell expressions, JSON conversion and a download that only saves a file. The original 53 Part 1 examples also retained their expected findings.
+
+The read-only default toolbox scan reported **80 unique skills, 56 identical mirrors, 38 Universal, 42 Needs review and 216 findings**. All four other status counts were zero. Both terminal and JSON runs exited 2. Excluding the timestamp, the full JSON report matched the one from `d2f54a9`, including the same three Part 1 findings in `security-review`.
+
 ## Step 8 Part 1 · 0.12.0 · 2026-11-26
 
 On Apple silicon macOS, `node --test --test-concurrency=2 --test-reporter=tap` passed **783 of 783 tests** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1**. There were zero failures, cancellations or skips. Each run finished with its temporary home and temporary-file directory empty.

