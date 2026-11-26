@@ -72,7 +72,7 @@ test("published skill commands run the bundled checkers from either working dire
   assert.equal(projects.commands.length, 2);
   for (const cwd of [unrelated, project]) {
     const skillReports = skills.commands.map(cmd => run(cmd, cwd, { ...env, CHECKER: skills.checker }));
-    assert.match(skillReports[0], /Skill Doctor[^\n]*2 unique skills/);
+    assert.match(skillReports[0], /Skills Checker[^\n]*2 unique skills/);
     assert.match(skillReports[0], /default-sample/);
     const names = JSON.parse(skillReports[1]).skills.map(s => s.name).sort();
     assert.deepEqual(names, ["audit-agent-skills", "default-sample"]);

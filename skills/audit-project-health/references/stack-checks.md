@@ -1,4 +1,4 @@
-# Stack checks and verified follow-up
+# Project Checker stack checks and verified follow-up
 
 ## Contents
 
@@ -10,19 +10,20 @@
 
 ## Safe static coverage
 
-The bundled scanner reads bounded source and configuration text only. It checks project-root availability, malformed package metadata, declared entry points, relative JavaScript and TypeScript imports, risky Electron security settings, large source/assets, test-script presence, lockfile hygiene, debug residue, empty catch blocks, and TODO/FIXME concentration. Generated folders, dependencies, caches, binaries, secret files, and symlinks are skipped. Escaping links are refused; unresolved links remain visible in scan boundaries with a safe operating-system error code such as `ENOENT` for individual links.
+Project Checker reads bounded source and configuration text. The rules below describe what this checker inspects. It checks project-root availability, malformed package metadata, declared entry points, relative JavaScript and TypeScript imports, risky Electron security settings, large source/assets, test-script presence, lockfile hygiene, debug residue, empty catch blocks, and TODO/FIXME concentration. Generated folders, dependencies, caches, binaries, secret files, and symlinks are skipped. Escaping links are refused; unresolved links remain visible in scan boundaries with a safe operating-system error code such as `ENOENT` for individual links.
 
 Relative-import checks use the bounded file index first, then exact in-root filesystem metadata when a valid target may fall beyond a file or byte bound. The fallback reads no target content, preserves filename-case checks on case-insensitive filesystems, and refuses symlink targets or parent paths that escape the explicit project root. A verified absence can still be confirmed after a file or byte limit. Expiry of the whole-audit time budget stops further checks and suppresses missing-file findings.
 
-TypeScript `.ts`, `.tsx`, `.mts`, and `.cts` sources may import emitted JavaScript paths:
-`.js`/`.jsx` resolve to `.ts`, `.tsx`, or `.d.ts`, `.mjs` to `.mts` or `.d.mts`, and `.cjs`
-to `.cts` or `.d.cts`. Plain JavaScript imports cannot be satisfied by a lone TypeScript file.
-Every directory segment and the target filename must match case, including on macOS.
+TypeScript can resolve an emitted JavaScript import to its corresponding source or declaration. Checked 2026-11-26 against the [TypeScript module reference](https://www.typescriptlang.org/docs/handbook/modules/reference.html#file-extension-substitution).
+
+For TypeScript importers, Project Checker looks for `.ts`, `.tsx` and `.d.ts` alternatives to `.js` or `.jsx`. It checks `.mts` and `.d.mts` for `.mjs`, and `.cts` and `.d.cts` for `.cjs`. For a JavaScript importer it requires a JavaScript target when the import names one. The checker requires matching case in every path segment on every platform.
 
 Project metadata proves additional artifact boundaries before traversal: an Electron dependency
 plus `build.directories.output`; a TypeScript dependency plus a test command's explicit `tsc
 --outDir`; matching source/native Capacitor app IDs for Android's `.gradle` and generated web
-assets. Unsafe paths, source folders, and the declared app entry
+assets. These rules use documented project settings. Checked 2026-11-26 against [electron-builder directories](https://www.electron.build/docs/api/app-builder-lib.interface.configuration/#directories), the [TypeScript output directory](https://www.typescriptlang.org/tsconfig/outDir.html) and [Capacitor configuration](https://capacitorjs.com/docs/config).
+
+Unsafe paths, source folders, and the declared app entry
 are never excluded as build output. Missing, invalid, oversized, or linked metadata proves no
 exclusion. Each verified exclusion is a non-actionable notice.
 Metadata is read as data, never executed, with a separate maximum of 64 KiB per file, 256 KiB
@@ -35,11 +36,11 @@ size still counts in large-file checks unless their artifact role is separately 
 
 Files above 1 MiB remain actionable unless their role is proven by project evidence. Exact declared build icons, their matching iconset inputs, `-src` image masters with an optimized sibling explicitly listed in `build.files`, and ZIPs in an explicit `*-zips/` distribution folder with a matching unpacked source directory are disclosed as non-actionable scan-boundary notices. Names or extensions alone never earn the exemption, and the global threshold is unchanged.
 
-Projects can declare human-facing deliverables in `package.json`. Set `projectDoctor.intentionalLargeAssets` to an array of objects such as `{"path":"docs/guide.pdf","kind":"human-deliverable"}`. The path must name an exact in-project file, and an explicit package build allowlist must exclude it. This rule applies in every profile.
+Projects can declare human-facing deliverables in `package.json`. The configuration key `projectDoctor` keeps its original spelling for compatibility with existing consumers. Set `projectDoctor.intentionalLargeAssets` to an array of objects such as `{"path":"docs/guide.pdf","kind":"human-deliverable"}`. The path must name an exact in-project file, and an explicit package build allowlist must exclude it. This rule applies in every profile.
 
 The coverage notice counts distinct runtime files reached by the JavaScript and TypeScript rules. Other recognized languages appear by name. Nested packages are listed together because only the root package receives project-level checks. Dependency and tool-cache names apply at any depth. The output names `dist`, `build`, `out`, `tmp`, `target`, `coverage` and `vendor` apply at the root. A nested output needs evidence from project settings. The grouped folder notice identifies encountered name-based exclusions and any sample trees excluded by the selected profile.
 
-The root Git ignore file and local Git exclude file supply literal root-folder exclusions, including optional leading slashes. A negation disables that file independently. Operating-system metadata files are omitted. See the protected-name list in the skill guide for credential handling.
+Git documents both repository ignore files and local exclusions, including negation patterns. Checked 2026-11-26 against [Git’s ignore-file reference](https://git-scm.com/docs/gitignore). Project Checker accepts literal root-folder exclusions with an optional leading slash. A negation disables that file’s exclusions in the checker. Operating-system metadata files are omitted. See the protected-name list in the skill guide for credential handling.
 
 ## Optional profile: workspace
 
@@ -52,11 +53,11 @@ The profile is off by default. Pass `--profile workspace` on the command line or
 
 ## Stack adapters
 
-- **JavaScript / TypeScript / Node**: package metadata, entry points, relative imports, test scripts, lockfiles, debug residue, empty catch blocks, and risky dynamic execution. Explicit Node CLI entrypoints may use `console.log` for their human-facing output; executable `debugger` statements remain actionable there, while ordinary application modules retain `console.log` detection.
-- **React / Next.js**: JavaScript checks plus large client assets and plain image loading opportunities.
-- **Electron**: JavaScript checks plus `nodeIntegration`, `contextIsolation`, `sandbox`, and `webSecurity` evidence.
-- **PWA**: manifest and service-worker presence when package metadata advertises PWA tooling.
-- **Generic**: README, oversized files, secret-file presence without reading values, and bounded-scan notices.
+- **JavaScript / TypeScript / Node** checks cover package metadata, entry points, relative imports, test scripts, lockfiles, debug residue, empty catch blocks, and risky dynamic execution. Explicit Node CLI entrypoints may use `console.log` for their human-facing output; executable `debugger` statements remain actionable there, while ordinary application modules retain `console.log` detection. For the meanings of the manifest fields, see [npm’s package reference](https://docs.npmjs.com/cli/v11/configuring-npm/package-json), checked 2026-11-26.
+- **React / Next.js** projects receive the JavaScript and TypeScript checks and the general large-file check.
+- **Electron** checks cover JavaScript plus `nodeIntegration`, `contextIsolation`, `sandbox`, and `webSecurity`. The security relevance of these settings was checked 2026-11-26 against [Electron’s security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
+- **PWA** checks cover manifest and service-worker presence when package metadata advertises PWA tooling.
+- **Generic** checks cover README, oversized files, secret-file presence without reading values, and bounded-scan notices.
 
 Adapters intentionally prefer a small explainable rule set over broad regex guessing. Extend the scanner only with a deterministic fixture proving the rule and its false-positive boundary.
 
@@ -64,7 +65,9 @@ For an Electron project, `console.log` in root `scripts/` is treated as tool out
 explicit, understood `build.files` allowlist excludes the file and it is not the app entry. These
 occurrences are disclosed together in scan notices. Executable `debugger`, imports, security
 patterns, and all other source checks still apply there; packaged scripts and ordinary source
-retain console detection. A Node shebang, a live `require.main === module` entry, a declared package command, or a script that invokes the file supplies additional evidence of command-line output.
+retain console detection. This rule recognizes the older `build.files` layout. The v27 electron-builder guide places those settings under `fileOptions`. Checked 2026-11-26 against [electron-builder’s configuration migration](https://www.electron.build/docs/migration/v27-config-changes/).
+
+A Node shebang, a live `require.main === module` entry, a declared package command, or a script that invokes the file supplies additional evidence of command-line output to Project Checker. CommonJS exposes the directly run module as `require.main`. Checked 2026-11-26 against [Node’s main module reference](https://nodejs.org/api/modules.html#accessing-the-main-module).
 
 ## Confidence rules
 

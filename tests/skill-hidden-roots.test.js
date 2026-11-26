@@ -42,7 +42,7 @@ test("root header and JSON name hidden entries while visible container skills ar
   const omitted = [".backup-x", ".system", "synced/.git", "synced/.older"];
   assert.deepEqual(report.roots[0].notSearched, omitted);
   assert.deepEqual(report.roots[0].containers, [{ name: "synced", skills: 1 }]);
-  const beforeSummary = execFileSync(process.execPath, [script, "--root", root], { encoding: "utf8" }).split("Skill Doctor")[0];
+  const beforeSummary = execFileSync(process.execPath, [script, "--root", root], { encoding: "utf8" }).split("Skills Checker")[0];
   assert.match(beforeSummary, /not searched/);
   for (const name of omitted) assert.ok(beforeSummary.includes(name), name);
 });

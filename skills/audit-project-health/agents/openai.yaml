@@ -1,4 +1,4 @@
 interface:
-  display_name: "Universal Project Doctor"
+  display_name: "Project Checker"
   short_description: "Read-only evidence for project health"
   default_prompt: "Use $audit-project-health to audit this project without changing it."

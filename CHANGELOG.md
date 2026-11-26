@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0] - 2026-11-26
+
+- The printed reports, guides and agent cards now use the names **Skills Checker** and **Project Checker** so readers can follow one name from installation to results. The Skills Checker failure line uses its new name too.
+- The Skills Checker now keeps file collection, rules and report formatting in separate modules. Its public entry point, result fields, verdicts and rule messages retain their existing contracts.
+- New tests pin all ten verdicts and their counts, check the read-only boundaries of both commands and verify that a scan leaves an executable fixture untouched. Test fixtures now clean up their temporary folders.
+- The README shows dated sample output and safe manual installation steps. The guides explain how to report the evidence and its limits. The repository now documents its scope, release process and rule-testing decisions.
+
 ## [0.9.0] - 2026-11-26
 
 - The default skills scan lists other installed locations under **Not checked**, counts filenames without opening skill files there, and marks incomplete counts. Hidden regular files no longer appear in `notSearched`. Only requested roots receive verdicts.
@@ -120,7 +127,7 @@ Existing tests adjusted for the corrected cases:
 - Identical copies keep the findings and worst status of their installations in either root order. Two physical copies with one name inside a root raise a duplicate-name finding even when their contents match.
 - The terminal lists each root's state first. A missing or unreadable explicit root, a file used as a root, and an omitted root path exit 1. Path-like arguments containing an equals sign keep their full path. Missing default roots stay quiet.
 - References in Markdown and the optional interface YAML are checked against case-exact names on disk. Punctuation, link titles, URL escapes and skill-directory prefixes are recognized. A missing internal Markdown link or a missing script, reference or asset named in the skill instructions or interface YAML reports Broken. Unresolved project commands, links leaving the skill and references in other Markdown files now receive review findings.
-- The project checker reports the same release number. Its scan behavior is unchanged.
+- Project Checker reports the same release number. Its scan behavior is unchanged.
 
 Existing contract tests changed as follows.
 
@@ -147,13 +154,13 @@ The fix round also updates eight inventory and reference tests introduced on thi
 - Configuration templates ending in .example, .sample, .template or .dist no longer produce secret-file findings. Credential and keystore names added to the protection list are flagged without reading their contents. A finding for several protected files lists all their paths. Actual environment files and possible private keys retain their findings. Dynamic-code checks recognize bare eval, eval calls on `window`, `globalThis`, `self` and `global`, the indirect `(0, eval)(...)` form, and Function construction. Comments, string examples and method calls such as page.$eval no longer raise the dynamic-code finding.
 - Root Git ignore and local Git exclude files can declare literal root folders. Each applied directory is named. Negation disables exclusions from its own file. The scanner never invokes Git.
 - More README spellings and npm shrinkwrap count. A real test command may end in `|| exit 1`. Console output from a declared or identifiable command-line entry no longer counts toward debug residue. Application logging and executable debugger statements retain their checks.
-- The project checker uses fixed UTF-16 code-unit order for paths. Desktop metadata files no longer affect counts or fingerprints. A language change no longer reorders findings.
+- Project Checker uses fixed UTF-16 code-unit order for paths. Desktop metadata files no longer affect counts or fingerprints. A language change no longer reorders findings.
 - Source patterns finish in bounded passes on long padded inputs. One deadline covers collection and rules. `durationMs` now measures elapsed time for the whole audit, including rules and report preparation. A time stop gets a notice and suppresses missing-file verdicts. **Additional 0.4.0 defect** — the PWA checker could call an existing manifest missing after an incomplete traversal. Deep or unexpectedly unreadable package metadata now produces a plain report diagnostic.
 - Eight existing test cases had fixtures affected by these changes. `project findings keep the exact package, import, Electron, PWA and source messages` now uses live Electron settings so its original wording assertions still exercise real findings. `Workspace artifact folders are disclosed and excluded before every downstream check` counts the grouped folder notice and the coverage notice. `binary source and manifest files are named, images and fonts are quiet`, `the same source in plain UTF-8 is checked`, and `a UTF-16 source BOM discloses a skipped file even when no byte is zero` now include their examined-file count. The three instances of `show the first 24 of <n> broken imports and disclose actual overflow` (24, 25 and 31) include the same coverage notice alongside the original overflow assertions.
 
 ## [0.4.0] - 2026-11-26
 
-- The project checker now finds a declared startup file in build output, with an omitted extension, or through a directory index. It checks string and named `bin` entries the same way. An absent build-output folder gets a notice that the project may need building. A genuinely missing entry in a checked location is still high and confirmed. Package fields `exports`, `module`, `types` and `browser` are deferred.
+- Project Checker now finds a declared startup file in build output, with an omitted extension, or through a directory index. It checks string and named `bin` entries the same way. An absent build-output folder gets a notice that the project may need building. A genuinely missing entry in a checked location is still high and confirmed. Package fields `exports`, `module`, `types` and `browser` are deferred.
 - Root files and the root `src` folder are read before other folders. A large picture collection can still reach the scan limit, but the report can now identify the package, inspect its source and find its README. The checker verifies README, lockfile, entry and service-worker names on disk before reporting an absence. An incomplete check gets a notice. An unlistable project root reports Unavailable.
 - TypeScript imports can resolve declaration-only files. Relative imports can resolve a directory's package entry, an internal link or a native Node addon. For a path above the scan root, the checker uses file metadata only. It consults directory manifests already read within the scan budget and discloses an import it could not verify.
 - Side-effect imports (including CSS), `require.resolve`, literal backtick arguments and comments before dynamic import paths now receive missing-file checks. Quoted examples and comments stay quiet under the existing source reader. Runtime concatenation and template interpolation no longer trigger findings for partial paths. The first 24 real broken imports are shown, with an overflow notice when a 25th exists.
@@ -162,7 +169,7 @@ The fix round also updates eight inventory and reference tests introduced on thi
 
 ## [0.3.0] - 2026-11-25
 
-- The project checker no longer reports import text in comments, strings and templates as a confirmed broken import. It still checks imports inside template expressions.
+- Project Checker no longer reports import text in comments, strings and templates as a confirmed broken import. It still checks imports inside template expressions.
 - The reader recognizes React tags, fragments, quoted attributes and embedded JavaScript. Real missing imports inside expressions and after JSX or TSX markup keep their original file and line.
 - Ambiguous syntax can still produce a false alarm. For example, a component with explicit type arguments, an unmatched closing tag or a slash that could mean division can make the reader keep all candidate findings from that point to the end of the file. This preserves evidence of real missing imports.
 
@@ -170,5 +177,5 @@ The fix round also updates eight inventory and reference tests introduced on thi
 
 - Both checkers print their release with `--version` and include `checkerVersion` in JSON reports so readers can identify the copy that produced a scan.
 - Document the two report formats and test their existing fields, findings, and exit codes so consumers can detect compatibility changes.
-- Correct the install, update, and scan instructions. Explain which languages the project checker examines, how it handles ignored files, and what each report can tell its reader.
+- Correct the install, update, and scan instructions. Explain which languages Project Checker examines, how it handles ignored files, and what each report can tell its reader.
 - Run the portable `node --test` command in a GitHub Actions matrix for macOS, Ubuntu, and Windows on Node 20, 22, and 24.

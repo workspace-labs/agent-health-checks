@@ -2,7 +2,7 @@
 
 Pass `--json` to either checker. Both reports use `schemaVersion: 1` and identify the release in `checkerVersion`. A skills report groups findings by installed skill in `skills`. A project report has a top-level `findings` array.
 
-## Skills report
+## Skills Checker report
 
 | Top-level key | Meaning |
 |---|---|
@@ -83,7 +83,7 @@ Both terminal reports display embedded control characters, line separators and d
 
 For multiple extra fields, the message lists each field and product separated by a comma and a space. The product labels are `Claude Code` and `product unconfirmed`. The existing `allowed-tools-extension` message now reads `The Agent Skills specification marks allowed-tools as experimental`.
 
-## Project report
+## Project Checker report
 
 | Top-level keys | Value |
 |---|---|
@@ -107,6 +107,8 @@ The report digest hashes the collected relative paths paired with their file dig
 **CLI.** Use `node scripts/audit-project.js --path <folder>` with optional `--json`, `--id <id>`, `--name <name>`, `--profile workspace`, `--max-files <n>`, `--max-file-bytes <n>`, `--max-total-bytes <n>` and `--max-duration-ms <n>`. All value options accept either a space or an equals sign. Limits are positive decimal whole numbers. Defaults are 2,400 files including links, 524,288 bytes per file, 14 MiB in total and 1,600 ms.
 
 Healthy and Watch exit 0. Needs attention exits 2. An inaccessible or refused folder prints an Unavailable report and exits 1. Unknown options, missing values, invalid profiles and invalid limits produce a diagnostic and usage on stderr and exit 1. Repeating a value option exits 1 and prints a single diagnostic naming the option on stderr. A missing `--path` now exits 1 (previously 2). Standalone help and version exit 0.
+
+The supported package declaration `projectDoctor.intentionalLargeAssets` keeps its original key for compatibility with existing manifests and the owner’s app.
 
 **Coverage in 0.8.0.** The optional module property `profile: "workspace"` enables the same layout rules as the CLI. An unknown module profile returns Unavailable and names the value. Both entry points refuse the real home folder, ancestors of home and filesystem roots before listing them.
 

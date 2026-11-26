@@ -11,28 +11,105 @@ node --test
 
 Run from the repository root. The suite uses Node’s built-in test runner and creates its fixtures in the system temporary directory. See the dated runs below for the exact versions tested.
 
-### Original 98 tests
+## Step 7 Part 1 · 0.10.0 · 2026-11-26
+
+### Local test matrix
+
+From the repository root, run `node --test`. These macOS runs used a temporary home and `--test-reporter=tap` to record the counts. Each row includes the two real CLI permission tests.
+
+| Node | Passed | Failed | Skipped | Permission flags used by each CLI test |
+|---|---:|---:|---:|---|
+| 20.20.2 | 670 | 0 | 0 | `--experimental-permission --allow-fs-read=*` |
+| 22.23.1 | 670 | 0 | 0 | `--permission --allow-fs-read=*` |
+| 24.22.1 | 670 | 0 | 0 | `--permission --allow-fs-read=*` |
+| 26.13.1 | 670 | 0 | 0 | `--permission --allow-fs-read=*` |
+
+The v0.9.0 suite passed 649 tests and left 15 fixture directories in an initially empty temporary directory. On 0.10.0 the actual system temp directory contained 34,322 entries before and after the final Node 20 run, with zero names added or removed. Each of the other three full runs used a fresh temporary directory and left it empty.
+
+### Read-only checks
+
+Run `node --test tests/checker-source-policy.test.js tests/checker-read-only.test.js` for the nine focused checks. The source controls cover disallowed imports, write-capable filesystem calls, process launches and network APIs. The command tests give each checker a script, an executable and three install hooks that lead to a marker file. Each command ran normally and under Node’s permission switch with only filesystem reads granted. Both reports parsed, the marker stayed absent and the fingerprint of names, bytes, modes and modification times held. The controls deliberately ran the marker script, changed a fixture file and attempted a permission-denied write. All nine passed on every version above.
+
+### Verdicts and rule codes
+
+The verdict tables exercise each of the six skill statuses and four project statuses separately, including the display word, machine key and exact summary counts. On v0.9.0 both new header assertions failed with the former names. The verdict tests also failed on disposable copies given deliberately wrong verdict data.
+
+The inventory below was collected from **emitted reports** in disposable copies, then checked against the rule sources. For skills, the counter observed each finalized skill's findings just before summary assembly. For projects, it observed both arrays returned by `auditProject`, including Unavailable reports. Before and after observations used the existing fixtures with a temporary home. The branch measurements used `node --test tests/skill-*.test.js` and `node --test tests/project-*.test.js` (280 and 379 tests respectively). All codes were already reached on v0.9.0. No additional rule-specific fixture was due for an unreached code.
+
+| Report evidence | v0.9.0 reached / emitted | 0.10.0 reached / emitted |
+|---|---:|---:|
+| Skills Checker findings, including file-collection notices surfaced as findings | 45 / 45 | 45 / 45 |
+| Project Checker findings | 30 / 30 | 30 / 30 |
+| Project Checker notices | 22 / 22 | 22 / 22 |
+
+Five project codes occur in both arrays, giving 47 distinct project codes. Skills coverage locations have a `kind` field and do not emit notice codes.
+
+**Skills Checker findings**
+
+`allowed-tools-extension`, `broken-reference`, `claude-description-angle-bracket`,
+`claude-name-angle-bracket`, `claude-reserved-name`, `code-execution`, `compatibility-too-long`,
+`declared-dependency`, `deep-reference`, `description-too-long`, `description-voice`,
+`destructive-command`, `duplicate-name`, `empty-body`, `extra-frontmatter-fields`,
+`folder-name-mismatch`, `invalid-name`, `invalid-yaml`, `long-body`, `malformed-frontmatter`,
+`missing-description`, `missing-name`, `missing-skill-md`, `model-specific-tool`, `name-too-long`,
+`network-access`, `openai-default-prompt`, `openai-yaml-interface`, `oversized-file`, `personal-path`,
+`reference-no-toc`, `scan-limit`, `symlink-root-escape`, `symlink-root-unresolved`, `symlink-skipped`,
+`symlink-unresolved`, `thin-description`, `unclear-trigger`, `unread-directory`, `unread-files`,
+`unreadable-directory`, `unreadable-file`, `unsupported-dependency-type`, `unverified-reference`,
+`unverified-yaml`.
+
+**Project Checker findings**
+
+`broken-relative-import`, `code-not-examined`, `debug-residue`, `dynamic-code-execution`,
+`electron-context-isolation`, `electron-node-integration`, `electron-sandbox-disabled`,
+`electron-web-security`, `empty-catch`, `large-project-files`, `malformed-package-json`,
+`metadata-limit`, `missing-lockfile`, `missing-package-bin`, `missing-package-entry`, `missing-readme`,
+`missing-test-script`, `package-not-examined`, `project-root-refused`, `project-unavailable`,
+`pwa-missing-manifest`, `pwa-missing-worker`, `scan-limit`, `secret-files-present`, `source-not-read`,
+`symlink-escape`, `todo-concentration`, `unreadable-directory`, `unreadable-file`,
+`unreadable-package-json`.
+
+**Project Checker notices**
+
+`binary-source-skipped`, `broken-import-limit`, `code-coverage`, `file-not-checked`,
+`folders-not-judged`, `git-ignored-folders`, `import-not-checked`, `intentional-large-asset`,
+`metadata-limit`, `nested-packages-not-judged`, `non-production-large-asset`, `oversized-text`,
+`package-entry-not-built`, `project-artifact-excluded`, `scan-limit`, `symlink-escape`,
+`symlink-skipped`, `symlink-unresolved`, `tooling-console-output`, `unreadable-directory`,
+`unreadable-file`, `workspace-artifact-excluded`.
+
+### Read-only comparison with v0.9.0
+
+With the same working directory and default roots, run `node skills/audit-agent-skills/scripts/audit-skills.js --json --include-body` from each version, then repeat in terminal mode. On 26 November 2026 both versions exited 2 with **84 unique skills, 56 mirrors and 231 findings, including 18 duplicate-name findings**. Both reported 37 Universal, 46 Needs review and one Broken.
+
+The comparison preserved formatting and byte order. It replaced only the top-level JSON release and generation timestamp with `VERSION` and `TIME`, and the checker name on the terminal summary line with `CHECKER`. The normalized JSON matched across 1,312,881 bytes (SHA-256 `b6c003881bdd6558b94a3cdfe225fb21907eb8861d3ff161b41aa0d7c51048ca`). The terminal output matched across 25,739 bytes (SHA-256 `418de71b523a2a2722f877e06fa7cf0ffca1bd4fc4a90cfba598b6c7fc880308`).
+
+For the project comparison, run `node skills/audit-project-health/scripts/audit-project.js --path "$APP" --profile workspace --json` from each version with the same project. Both exited 0 with Watch. All four finding objects, including IDs, matched for `large-project-files`, `empty-catch`, `scan-limit` and `debug-residue`. Running `node skills/audit-agent-skills/scripts/audit-skills.js --root skills` on the shipped pair reported two Universal, zero findings and exit 0.
+
+The README picture contains both uncut terminal outputs from separate sample folders on the same date, including the commands. The project example shows one missing README and the skills example shows two Universal skills.
+
+## Original 98 tests
 
 | Test file | Checks | Tests |
 |---|---|---:|
-| `tests/skill-doctor.test.js` | the skills checker | 11 |
-| `tests/project-doctor.test.js` | the project checker: findings, labels, exclusions | 31 |
-| `tests/project-doctor-reading.test.js` | the project checker: imports, TypeScript, file-name case, read limits | 40 |
-| `tests/project-doctor-context.test.js` | the project checker: build output, archives, tool scripts | 16 |
+| `tests/skill-doctor.test.js` | the Skills Checker | 11 |
+| `tests/project-doctor.test.js` | the Project Checker: findings, labels, exclusions | 31 |
+| `tests/project-doctor-reading.test.js` | the Project Checker: imports, TypeScript, file-name case, read limits | 40 |
+| `tests/project-doctor-context.test.js` | the Project Checker: build output, archives, tool scripts | 16 |
 | **Total** | | **98** |
 
 ## How many times it was tested
 
 ### Before this repo had tests (July to September 2026)
 
-Both checkers were built and fixed inside the author's Workspace app. Every change was
+Both checkers were first developed inside the author's Workspace app. Every change was
 a task card that had to pass the app's tests before a person accepted it.
 **12 cards changed the checkers. All 12 passed and were accepted.**
 
 | # | Date | What changed | Test result written on the card | Second-agent review |
 |---:|---|---|---|---|
-| 1 | 2026-07-25 | Skills checker built | 9 passing fixtures | — |
-| 2 | 2026-07-25 | Project checker built | 26 passing tests | — |
+| 1 | 2026-07-25 | Skills Checker built | 9 passing fixtures | — |
+| 2 | 2026-07-25 | Project Checker built | 26 passing tests | — |
 | 3 | 2026-07-25 | Oversized data files reported as scan limits | 13/13 focused, 27/27 full | — |
 | 4 | 2026-07-25 | Command-line `console.log` no longer flagged | 12/12 focused, 30/30 full | — |
 | 5 | 2026-07-25 | Empty catch blocks removed from both checkers | 40/40 | — |
@@ -40,7 +117,7 @@ a task card that had to pass the app's tests before a person accepted it.
 | 7 | 2026-07-26 | Broken-import false alarm fixed | 17/17 focused, 56/56 full | — |
 | 8 | 2026-07-27 | Proof and backup archives not flagged | 19 focused, 95 full | — |
 | 9 | 2026-07-27 | Declared deliverable PDFs not flagged | 22/22 focused, 106/106 full | — |
-| 10 | 2026-08-07 | Skills checker: empty fingerprint fixed | 220/220 full | 1 round: tests confirmed; asked for a live end-to-end proof |
+| 10 | 2026-08-07 | Skills Checker: empty fingerprint fixed | 220/220 full | 1 round: tests confirmed; asked for a live end-to-end proof |
 | 11 | 2026-09-01 | `*.bak` backup files skipped | full suite, 0 failures; 2 of the 4 new tests fail on the old code | 1 round: clear |
 | 12 | 2026-09-02 | Demo, `tmp/` and skill-template folders treated as non-shipped | 32/32 focused, full suite 0 failures; the new test broken on purpose went red | 2 rounds: low finding, then fixed |
 
@@ -50,12 +127,11 @@ They were moved, not changed.
 
 ### When this repo got its tests (2026-10-09)
 
-The copy published here in July had fallen behind. Running the same tests against
-both versions showed it:
+The first public commit on August 19 contained the write-up. Both checker scripts first appeared here on August 21 in `4556208`. The public scripts later fell behind the app. The October comparison used these revisions.
 
 | Version | Commit | Result |
 |---|---|---|
-| July copy (as first published) | `e69e5df` | **69 / 98 pass, 29 fail** |
+| Public copy before the October update | `e69e5df` | **69 / 98 pass, 29 fail** |
 | Current copy | `5b85dd1` and later | **98 / 98 pass** |
 
 The 29 failures are real bugs in the old copy. They cover TypeScript `.js` imports,
@@ -305,9 +381,9 @@ All nine jobs passed on commit `066cadc`. Each cell shows **passed / skipped** o
 
 On 2026-10-09, both checkers were run on real material, not test fixtures:
 
-- **Skills checker** on a real toolbox of 66 skills: 34 universal, 26 needing review,
+- **Skills Checker** on a real toolbox of 66 skills: 34 universal, 26 needing review,
   4 broken. Example: two different skills sharing the name `frontend-design`.
-- **Project checker** on a real 1,087-file Electron app: 0 confirmed, 2 likely,
+- **Project Checker** on a real 1,087-file Electron app: 0 confirmed, 2 likely,
   1 recommendation, in 81 ms.
 - **Both checkers on this repo itself:** 0 findings.
 
@@ -398,7 +474,7 @@ Each Windows job skipped the same 16 symbolic-link tests, listed below. All 16 p
 | `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence |
 | `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding |
 
-### Project checker options and coverage (0.8.0, 2026-11-26)
+### Project Checker options and coverage (0.8.0, 2026-11-26)
 
 From the repository root, run the full tests with each requested Node binary. The focused commands below exercise both command-line forms, usage errors, refusal before reading, source order, link accounting, notice grouping, missing imports and eval spellings.
 
@@ -434,7 +510,7 @@ node --test tests/project-import-forms.test.js tests/project-source-rules.test.j
 
 The real unreadable-directory control returned Unavailable and exit 1. The link-only regression fixture also checks all 2,400 admitted links in one counted notice, the first ten paths, fewer than 100 terminal lines and less than 100 KB of JSON.
 
-**Read-only app comparison.** Run the project checker from a temporary archive of `v0.7.0` and from this checkout. Use the same absolute project path for all three runs.
+**Read-only app comparison.** Run the Project Checker from a temporary archive of `v0.7.0` and from this checkout. Use the same absolute project path for all three runs.
 
 ```sh
 node skills/audit-project-health/scripts/audit-project.js --path "$APP" --json
@@ -492,7 +568,7 @@ Each Windows job skipped the 16 symbolic-link tests carried forward from 0.7.0 a
 | `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence | Carried forward |
 | `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding | Carried forward |
 
-### Skills checker noise and options (0.9.0, 2026-11-26)
+### Skills Checker noise and options (0.9.0, 2026-11-26)
 
 On macOS, v0.8.0 at `9b1edb8` passed its original 624 tests on Node 20.20.2. Before implementation, 32 tests failed against the released checker with the Step 6 expectations in place. The final suite also exercises hidden links, a shared directory-counting deadline, and Markdown examples that resemble links.
 

@@ -135,3 +135,35 @@ test("project digest covers sorted paths, content hashes and size markers", (t) 
   assert.equal(report.totalBytes, 2);
   assert.equal(report.digest, "c5bfd0ba5a0db5ff7c56daf4e045f264f883e754fad3e589b530f925a0dde9db");
 });
+
+const projectVerdicts = [
+  {
+    status: "Healthy", key: "healthy", files: { "README.md": "# Project\n" },
+    codes: [], summary: { findings: 0, confirmed: 0, likely: 0, recommendation: 0, high: 0 },
+  },
+  {
+    status: "Watch", key: "watch", files: {},
+    codes: ["missing-readme"], summary: { findings: 1, confirmed: 0, likely: 0, recommendation: 1, high: 0 },
+  },
+  {
+    status: "Needs attention", key: "attention",
+    files: { "README.md": "# Project\n", "app.js": "require('./absent');\n" },
+    codes: ["broken-relative-import"], summary: { findings: 1, confirmed: 1, likely: 0, recommendation: 0, high: 1 },
+  },
+  {
+    status: "Unavailable", key: "unavailable", files: {}, target: "missing",
+    codes: ["project-unavailable"], summary: { findings: 1, confirmed: 1, likely: 0, recommendation: 0, high: 1 },
+  },
+];
+
+for (const { status, key, files, target, codes, summary } of projectVerdicts) {
+  test("project verdict and counts for " + status, t => {
+    const root = projectDirectory(t);
+    for (const [name, content] of Object.entries(files)) fs.writeFileSync(path.join(root, name), content);
+    const report = checker.auditProject({ path: path.join(root, target || ".") });
+    assert.equal(report.status, status);
+    assert.equal(report.statusKey, key);
+    assert.deepEqual(report.summary, summary);
+    assert.deepEqual(report.findings.map(finding => finding.code), codes);
+  });
+}

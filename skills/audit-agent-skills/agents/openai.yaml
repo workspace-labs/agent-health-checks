@@ -1,4 +1,4 @@
 interface:
-  display_name: "Audit Agent Skills"
+  display_name: "Skills Checker"
   short_description: "Audit AI skill health across agents"
   default_prompt: "Use $audit-agent-skills to audit my installed AI skills without changing them."

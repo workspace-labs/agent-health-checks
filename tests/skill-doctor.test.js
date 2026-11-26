@@ -5,11 +5,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const crypto = require("node:crypto");
+const { hashTree } = require("./support/tree-fingerprint");
 const { auditSkillRoots } = require("../skills/audit-agent-skills/scripts/audit-skills");
 
-function tempRoot(label) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `skill-doctor-${label}-`));
+function tempRoot(t, label) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `skill-doctor-${label}-`));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return root;
 }
 
 function put(root, name, body, extras = {}) {
@@ -32,31 +34,16 @@ function scan(roots, limits) {
   return auditSkillRoots({ roots: roots.map((root, i) => ({ id: `test-${i}`, label: `Test ${i + 1}`, path: root })), limits });
 }
 
-function hashTree(root) {
-  const hash = crypto.createHash("sha256");
-  function walk(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const file = path.join(dir, entry.name);
-      hash.update(path.relative(root, file));
-      if (entry.isDirectory()) walk(file);
-      else if (entry.isSymbolicLink()) hash.update(fs.readlinkSync(file));
-      else hash.update(fs.readFileSync(file));
-    }
-  }
-  walk(root);
-  return hash.digest("hex");
-}
-
-test("valid universal skill passes all six DNA axes", () => {
-  const root = tempRoot("universal");
+test("valid universal skill passes all six DNA axes", t => {
+  const root = tempRoot(t, "universal");
   put(root, "clean-skill", skillMd("clean-skill", "Use when the user asks to inspect a plain text report and summarize its evidence."));
   const report = scan([root]);
   assert.equal(report.skills[0].status, "Universal");
   assert.deepEqual(report.skills[0].axes, { structure: "pass", triggers: "pass", safety: "pass", portability: "pass", claude: "pass", codex: "pass" });
 });
 
-test("separate Claude and Codex profiles produce directional readiness", () => {
-  const root = tempRoot("profiles");
+test("separate Claude and Codex profiles produce directional readiness", t => {
+  const root = tempRoot(t, "profiles");
   put(root, "portable-helper", skillMd("portable-helper", "Use when the user asks for a portable profile demonstration."), {
     "agents/openai.yaml": "interface:\n  default_prompt: Inspect the records.\n",
   });
@@ -66,8 +53,8 @@ test("separate Claude and Codex profiles produce directional readiness", () => {
   assert.equal(report.skills.find((s) => s.name === "claude-companion").status, "Codex-ready");
 });
 
-test("malformed frontmatter and broken references are hard failures", () => {
-  const root = tempRoot("broken");
+test("malformed frontmatter and broken references are hard failures", t => {
+  const root = tempRoot(t, "broken");
   put(root, "bad-front", "# no frontmatter\n");
   put(root, "bad-link", skillMd("bad-link", "Use when the user asks to open a bundled compatibility reference.", "# Workflow\n\nRead [the guide](references/missing.md)."));
   const report = scan([root]);
@@ -75,8 +62,8 @@ test("malformed frontmatter and broken references are hard failures", () => {
   assert.ok(report.skills.find((s) => s.name === "bad-link").findings.some((f) => f.code === "broken-reference" && f.severity === "error"));
 });
 
-test("weak triggers stay heuristic review findings", () => {
-  const root = tempRoot("triggers");
+test("weak triggers stay heuristic review findings", t => {
+  const root = tempRoot(t, "triggers");
   put(root, "vague-helper", skillMd("vague-helper", "Makes things nice."));
   const result = scan([root]).skills[0];
   assert.equal(result.status, "Needs review");
@@ -84,8 +71,8 @@ test("weak triggers stay heuristic review findings", () => {
   assert.ok(result.findings.some((f) => f.code === "unclear-trigger"));
 });
 
-test("different duplicates and likely trigger overlap remain visible", () => {
-  const a = tempRoot("dupe-a"), b = tempRoot("dupe-b");
+test("different duplicates and likely trigger overlap remain visible", t => {
+  const a = tempRoot(t, "dupe-a"), b = tempRoot(t, "dupe-b");
   const description = "Use when the user asks to compare architecture options with weighted quality evidence.";
   put(a, "decision-aid", skillMd("decision-aid", description));
   put(b, "decision-aid", skillMd("decision-aid", description, "# Workflow\n\nUse a different implementation."));
@@ -97,8 +84,8 @@ test("different duplicates and likely trigger overlap remain visible", () => {
   assert.ok(report.skills.every((s) => s.findings.every((f) => f.code !== "trigger-overlap")));
 });
 
-test("identical mirrors deduplicate while preserving source badges", () => {
-  const a = tempRoot("mirror-a"), b = tempRoot("mirror-b");
+test("identical mirrors deduplicate while preserving source badges", t => {
+  const a = tempRoot(t, "mirror-a"), b = tempRoot(t, "mirror-b");
   const content = skillMd("same-skill", "Use when the user asks to prove identical mirrors are deduplicated.");
   put(a, "same-skill", content); put(b, "same-skill", content);
   const report = scan([a, b]);
@@ -107,8 +94,8 @@ test("identical mirrors deduplicate while preserving source badges", () => {
   assert.equal(report.skills[0].sources.length, 2);
 });
 
-test("risky commands are reported but never executed or rewritten", () => {
-  const root = tempRoot("readonly");
+test("risky commands are reported but never executed or rewritten", t => {
+  const root = tempRoot(t, "readonly");
   const sentinel = path.join(root, "executed.txt");
   put(root, "risky-skill", skillMd("risky-skill", "Use when the user asks to inspect a deliberately risky test fixture.", "# Workflow\n\nReview the bundled script before any action."), {
     "scripts/danger.sh": `#!/bin/sh\nrm -rf /never-run\nprintf executed > ${sentinel}\n`,
@@ -121,8 +108,8 @@ test("risky commands are reported but never executed or rewritten", () => {
   assert.ok(report.skills[0].findings.some((f) => f.code === "destructive-command"));
 });
 
-test("oversized and binary content is bounded and disclosed", () => {
-  const root = tempRoot("limits");
+test("oversized and binary content is bounded and disclosed", t => {
+  const root = tempRoot(t, "limits");
   put(root, "bounded-skill", skillMd("bounded-skill", "Use when the user asks to verify bounded file and binary scanning."), {
     "assets/blob.bin": Buffer.from([0, 1, 2, 3]),
     "references/large.txt": "x".repeat(256),
@@ -131,8 +118,8 @@ test("oversized and binary content is bounded and disclosed", () => {
   assert.ok(result.findings.some((f) => f.code === "oversized-file"));
 });
 
-test("symlinks escaping a declared root are refused", { skip: process.platform === "win32" }, () => {
-  const root = tempRoot("symlink-root"), outside = tempRoot("symlink-outside");
+test("symlinks escaping a declared root are refused", { skip: process.platform === "win32" }, t => {
+  const root = tempRoot(t, "symlink-root"), outside = tempRoot(t, "symlink-outside");
   put(outside, "external-skill", skillMd("external-skill", "Use when the user asks to test a symlink boundary."));
   fs.symlinkSync(path.join(outside, "external-skill"), path.join(root, "external-skill"));
   const result = scan([root]).skills[0];
@@ -140,8 +127,8 @@ test("symlinks escaping a declared root are refused", { skip: process.platform =
   assert.equal(result.fileCount, 0);
 });
 
-test("broken skill symlinks are explicit safety findings", { skip: process.platform === "win32" }, () => {
-  const root = tempRoot("broken-symlinks");
+test("broken skill symlinks are explicit safety findings", { skip: process.platform === "win32" }, t => {
+  const root = tempRoot(t, "broken-symlinks");
   const dir = put(root, "linked-skill", skillMd("linked-skill", "Use when the user asks to verify broken skill symlink handling."));
   fs.symlinkSync(path.join(dir, "references", "missing.md"), path.join(dir, "missing-reference.md"));
   fs.symlinkSync(path.join(root, "missing-skill"), path.join(root, "ghost-skill"));
@@ -158,8 +145,8 @@ test("broken skill symlinks are explicit safety findings", { skip: process.platf
 // finding from every evidence contract downstream (the Skill Clinic could not send
 // it to Backloop at all). Refusing to read the target must not cost the card its
 // identity: mint a deterministic digest instead.
-test("refused root symlinks still carry a stable, unique audit digest", { skip: process.platform === "win32" }, () => {
-  const root = tempRoot("symlink-digest"), outside = tempRoot("symlink-digest-outside");
+test("refused root symlinks still carry a stable, unique audit digest", { skip: process.platform === "win32" }, t => {
+  const root = tempRoot(t, "symlink-digest"), outside = tempRoot(t, "symlink-digest-outside");
   put(outside, "escaped-skill", skillMd("escaped-skill", "Use when the user asks to test a refused symlink digest."));
   fs.symlinkSync(path.join(outside, "escaped-skill"), path.join(root, "escaped-skill"));
   fs.symlinkSync(path.join(outside, "escaped-skill"), path.join(root, "second-link"));

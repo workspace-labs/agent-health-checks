@@ -2,13 +2,13 @@
 
 **An agent is only as good as the instructions it loads and the code it opens. Almost nobody checks either.**
 
-![Two read-only doctors: the skills checker and the project checker, each shown with its real terminal output](media/health-checks.png)
+![Terminal output captured on 26 November 2026. Skills Checker rated the sample field-notes and trail-map skills Universal. Project Checker rated the sample tide-times project Watch for a missing README.](media/health-checks.png)
 
 This is a working pattern for auditing both — with two read-only checkers that produce evidence a person can act on, and no authority to change anything they find.
 
 It is tool-agnostic. Nothing here depends on a particular model, CLI, or framework.
 
-Both checkers are in this repo — [`skills/`](skills). Two dependency-free Node scripts you can run in a minute.
+Both checkers live in [`skills/`](skills) and run on Node.js 20 or later. Version **0.10.0**.
 
 ---
 
@@ -18,7 +18,7 @@ Both checkers are in this repo — [`skills/`](skills). Two dependency-free Node
 
 Agents choose a tool by reading its description. So the moment two tools describe overlapping jobs, the choice between them stops being predictable — and that failure doesn't present as a duplicate. It presents as a *random bug*: the same request works on Monday and does something strange on Thursday, and you go looking in the wrong place.
 
-It happens easily. Skills arrive from different sources, get installed months apart, and nobody re-reads the descriptions as a set. An audit of one working toolbox today: **34 skills, and two of them still share a single name.**
+It happens easily. Skills arrive from different sources, get installed months apart, and nobody re-reads the descriptions as a set. On 26 November 2026, Skills Checker found **84 unique skills and 18 duplicate-name findings** in one working toolbox. [Testing record](TESTING.md)
 
 The same blind spot hides slower problems. A tool can ship bundled code that runs shell commands, reach the network, point at a reference file that isn't there, or link out of its own folder through a symlink. None of that is visible from the one line an agent reads before loading it.
 
@@ -30,12 +30,12 @@ Asking the agent that is about to do the work is not an answer. That's an opinio
 
 ---
 
-## The pattern: two doctors, both read-only
+## What each checker reads
 
 | Checker | Reads | Reports |
 |---|---|---|
-| **Skills doctor** | The instructions agents load | Structure, trigger wording, safety signals, portability, cross-model compatibility |
-| **Projects doctor** | JavaScript and TypeScript projects | Structure, broken local references, risky patterns, testing gaps, performance signals, maintainability |
+| **Skills Checker** | The instructions agents load | Structure, trigger wording, safety signals, portability, cross-model compatibility |
+| **Project Checker** | JavaScript and TypeScript projects | Structure, broken local references, risky patterns, testing gaps, performance signals, maintainability |
 
 Every project report counts the JavaScript and TypeScript files its code rules examined and names other recognized languages it saw. A Python-only or Go-only project gets a coverage finding and a **Watch** status. A mixed project gets a coverage notice.
 
@@ -60,7 +60,7 @@ node skills/audit-project-health/scripts/audit-project.js --path /absolute/proje
 
 Add `--json` for a machine-readable report. Run either script with `--version` alone to print its release. The [report format](REPORT-FORMAT.md) lists the fields and exit codes for each checker.
 
-The skills checker’s default JSON includes byte counts for the instruction body and frontmatter. Use `--json --include-body` to include their full values. On a default run, **Not checked** lists other skill locations and counts their `SKILL.md` files. A partial count is a lower bound. Only requested roots receive verdicts. To audit a listed location, pass its path with `--root`.
+Skills Checker’s default JSON includes byte counts for the instruction body and frontmatter. Use `--json --include-body` to include their full values. On a default run, **Not checked** lists other skill locations and counts their `SKILL.md` files. A partial count is a lower bound. Only requested roots receive verdicts. To audit a listed location, pass its path with `--root`.
 
 **Before installing a skill**, set `CANDIDATE` to the new skill’s folder and `COLLECTION` to an installed skills folder. Compare them together from the trusted clone.
 
@@ -70,33 +70,70 @@ node skills/audit-agent-skills/scripts/audit-skills.js --root "candidate=$CANDID
 
 The `--root` options replace all default roots. Add another labelled `--root` for each additional installed folder. A `duplicate-name` finding identifies a name clash. **Closest descriptions** (`summary.closestPairs` in JSON) ranks possible job clashes for a person to judge.
 
-Skills exit codes are **0** after a completed scan with no Broken skill or open command safety finding, **2** for a Broken skill or an open `destructive-command`, `code-execution` or `network-access` finding, and **1** for an unavailable explicit root, zero skills across all explicit roots, invalid usage or checker failure. Standalone help and version exit 0.
+Project Checker accepts `--path`, `--id`, `--name`, `--profile workspace` and four positive whole-number limits: `--max-files`, `--max-file-bytes`, `--max-total-bytes` and `--max-duration-ms`. Value options accept both a space and an equals sign. Choose a project folder. The checker refuses filesystem roots, the home folder and every ancestor of home. Folders inside home are accepted. The optional workspace profile enables exclusions for a specific app layout. Without that profile, the same folders are scanned as ordinary project content. The `package.json` key `projectDoctor` keeps its original spelling for compatibility with existing apps.
 
-The project checker accepts `--path`, `--id`, `--name`, `--profile workspace` and four positive whole-number limits: `--max-files`, `--max-file-bytes`, `--max-total-bytes` and `--max-duration-ms`. Value options accept both a space and an equals sign. Choose a project folder. The checker refuses filesystem roots, the home folder and every ancestor of home. Folders inside home are accepted. The optional workspace profile enables exclusions for the owner's app layout. The default checks those paths as ordinary project content.
+## Reading the answer
 
-Project exit codes are **0** for Healthy or Watch, **2** for Needs attention and **1** for usage errors or an Unavailable report. Standalone help and version exit 0.
+| Exit | Skills Checker | Project Checker |
+|---|---|---|
+| 0 | Scan finished with no Broken skill or open command safety finding. Review findings can still be present. | Healthy or Watch. |
+| 1 | Invalid usage, an unavailable explicit root, zero skills across all explicit roots, or a checker failure. | Invalid usage or an Unavailable report. |
+| 2 | A Broken skill or an open `destructive-command`, `code-execution` or `network-access` finding. | Needs attention. |
 
-Run the tests from the clone. Verified on Node 20.20.2, 22.23.1, 24.22.1, and 26.13.1.
+Both commands refuse unknown options. Run either with `--help` or `--version` alone for exit 0.
+
+- **Skills Checker** gives each finding a rule code, check area, severity, file, line, message and suggestion. The terminal groups repeats and JSON includes every finding.
+- **Project Checker** gives each finding an ID, rule code, category, severity, confidence, file, line, message, impact, a verification step and a recommendation. Read the scan boundaries to see what was skipped.
+
+## Install
+
+Use Node.js 20 or later. CI runs Node 20, 22 and 24 on macOS, Ubuntu Linux and Windows. Node 26 is also checked locally. [Testing record](TESTING.md)
+
+To install both skills for your agent, run the command below and choose the agent when prompted. The skills CLI discovers this repository’s two `skills/<name>/SKILL.md` packages. [Vercel CLI reference](https://github.com/vercel-labs/skills/blob/main/docs/commands.md) · [Skill discovery](https://github.com/vercel-labs/skills/blob/main/docs/creating-skills.md#skill-discovery)
 
 ```bash
-node --test
+npx skills add workspace-labs/agent-health-checks -g --skill audit-agent-skills audit-project-health
 ```
 
-How often they were tested, the results, and what was never tested: [TESTING.md](TESTING.md).
+To copy both by hand, first clone the repository as shown in **Run them** and start in its root. Choose the personal skills directory for your agent. The commands stop if either destination name already exists.
 
-To install both skills for Claude Code, run these commands from the clone.
+**macOS or Linux**
 
-```bash
-mkdir -p "$HOME/.claude/skills/audit-agent-skills" "$HOME/.claude/skills/audit-project-health"
-cp -R skills/audit-agent-skills/. "$HOME/.claude/skills/audit-agent-skills/"
-cp -R skills/audit-project-health/. "$HOME/.claude/skills/audit-project-health/"
+```sh
+(
+  set -e
+  skills_dir="$HOME/.claude/skills"   # For Codex use "$HOME/.agents/skills"
+  mkdir -p "$skills_dir"
+  for name in audit-agent-skills audit-project-health; do
+    if [ -e "$skills_dir/$name" ] || [ -L "$skills_dir/$name" ]; then
+      echo "Already exists: $skills_dir/$name" >&2
+      exit 1
+    fi
+  done
+  for name in audit-agent-skills audit-project-health; do
+    mkdir "$skills_dir/$name"
+    cp -R "skills/$name/." "$skills_dir/$name/"
+  done
+)
 ```
 
-To update, first remove the two old skill folders, `~/.claude/skills/audit-agent-skills` and `~/.claude/skills/audit-project-health`. Then run the install commands above from the new release.
+**Windows PowerShell**
 
-For Codex, put each skill folder in `~/.agents/skills` for personal use. Inside a repository, Codex checks `.agents/skills` at each directory from the working directory up to the repository root. [OpenAI’s local skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)
-
-Neither script executes what it inspects, reaches the network, or writes to anything it reads.
+```powershell
+$skillsDir = Join-Path $env:USERPROFILE '.claude\skills'  # For Codex use '.agents\skills'
+$names = 'audit-agent-skills', 'audit-project-health'
+New-Item -ItemType Directory -Path $skillsDir -Force -ErrorAction Stop | Out-Null
+$existing = Get-ChildItem -LiteralPath $skillsDir -Force -ErrorAction Stop
+foreach ($name in $names) {
+    if ($existing.Name -contains $name) { throw "Already exists: $skillsDir\$name" }
+}
+foreach ($name in $names) {
+    $dest = Join-Path $skillsDir $name
+    New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
+    Get-ChildItem -LiteralPath "skills/$name" -Force -ErrorAction Stop |
+        Copy-Item -Destination $dest -Recurse -ErrorAction Stop
+}
+```
 
 ---
 
@@ -104,9 +141,7 @@ Neither script executes what it inspects, reaches the network, or writes to anyt
 
 **It never runs what it inspects.** Static evidence only — no executing bundled scripts, no network, no installs. You are inspecting something you don't yet trust; running it first is the wrong order.
 
-**Every finding carries a location.** A finding you can't walk to is a rumour. Project findings give a file and line, the check that raised the finding, its impact, how to verify it, and a recommended next step. A finding that counts several occurrences may point to just one location. Skill findings give the check area, severity, location, and a message. The skills JSON also includes the rule code and a suggestion. The terminal shows up to eight findings per skill.
-
-**The project checker labels its own certainty.** *Confirmed* (proven by the evidence), *likely* (a real risk still needing a runtime check), *recommendation* (an improvement, not a bug). A scanner that states everything at the same volume gets ignored at the same volume. The skills checker uses the severity labels *error* and *review*.
+**Project Checker labels its certainty.** *Confirmed* means the static evidence demonstrates the issue. *Likely* calls for a runtime check. A *recommendation* identifies an improvement. Skills Checker uses the severity labels *error* and *review*.
 
 **It fails closed and stays honest about its edges.** A link escaping its own folder is refused and reported, not followed. Scans are bounded — and whatever got skipped for size stays visible in the report rather than quietly counting as clean.
 
@@ -128,9 +163,9 @@ Two reasons it's built that way. A scanner that can also repair will eventually 
 
 Neither checker was designed in the abstract. Both are scar tissue.
 
-**The skills doctor** came from losing whole working sessions to a problem that never announced itself. Two tools quietly competed for the same job; the symptom was inconsistency, not duplication, so the search always started somewhere else. It happened more than once — including with a well-known skill, hundreds of thousands of installs deep, that turned out to do the same job as a tool already installed. The rule that came out of it (*search before you build a new tool*) was the obvious half. The audit is the half with teeth, because a rule is a request and a check is a result.
+**Skills Checker** came from losing whole working sessions to a problem that never announced itself. Two tools quietly competed for the same job; the symptom was inconsistency, not duplication, so the search always started somewhere else. It happened more than once — including with a well-known skill, hundreds of thousands of installs deep, that turned out to do the same job as a tool already installed. The rule that came out of it (*search before you build a new tool*) was the obvious half. The audit is the half with teeth, because a rule is a request and a check is a result.
 
-**The projects doctor** came from one sentence: *"I'm not a developer — even if I read the code I won't understand it."* That's the honest position of most people approving AI work now, and it makes "do you approve this?" an unanswerable question. So the code got a checker that answers in plain language, with a location attached, before anything is changed.
+**Project Checker** came from one sentence: *"I'm not a developer — even if I read the code I won't understand it."* That's the honest position of most people approving AI work now, and it makes "do you approve this?" an unanswerable question. So the code got a checker that answers in plain language, with a location attached, before anything is changed.
 
 The general lesson underneath both: **when the same shape of mistake keeps coming back, don't write a smarter rule — build the check.** Rules depend on someone remembering them at the exact moment they're inconvenient. Checks don't.
 
@@ -140,7 +175,7 @@ The general lesson underneath both: **when the same shape of mistake keeps comin
 
 An honest accounting:
 
-- **Audits produce noise.** That same toolbox reports nine items as *needs review* — and most of them are deliberate and fine. Somebody still has to read them, and a report nobody reads is worse than no report, because it looks like coverage.
+- **Audits produce noise.** A skill can earn *Needs review* for a deliberate choice. Somebody still has to read them, and a report nobody reads is worse than no report, because it looks like coverage.
 - **Static analysis has a ceiling.** It sees structure and shape, not behaviour. It will never catch everything, and pretending otherwise is how a clean report becomes a false comfort.
 - **It's another thing to maintain.** The checkers are software too, with their own bugs and their own blind spots.
 
@@ -155,5 +190,14 @@ An honest accounting:
 > Check the instructions before an agent loads them, and the code before an agent changes it. Keep the check read-only, evidence-backed, and honest about its own certainty — then make every fix pass through a person.
 
 ---
+
+## Works best with
+
+- Use Project Checker when documenting how an existing project works. The owner can sort the findings before agreeing to changes, dates and budget. [project-docs](https://github.com/workspace-labs/project-docs)
+- Follow the wider sequence from discovery through handover and maintenance. [project-journey](https://github.com/workspace-labs/project-journey)
+
+## Working on this repository
+
+Run `node --test` from the clone. The contributor guide explains how to test a new rule and how a named release reaches a downstream app. [AGENTS.md](AGENTS.md)
 
 <sub>by Workspace Labs · Drawn from a working system, not a thought experiment.</sub>

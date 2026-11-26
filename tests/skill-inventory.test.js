@@ -184,7 +184,7 @@ test("terminal output leads with explicit root states and missing default roots 
   const dir = fixture(t);
   const result = cli(dir, ["--root", "present=" + dir, "--root", "absent=" + path.join(dir, "absent")]);
   assert.equal(result.status, 1);
-  const preamble = result.stdout.split("Skill Doctor")[0];
+  const preamble = result.stdout.split("Skills Checker")[0];
   assert.match(preamble, /present.*read/i);
   assert.match(preamble, /absent.*missing/i);
   const defaults = cli(dir, [], { env: { ...process.env, HOME: dir, USERPROFILE: dir } });

@@ -125,5 +125,5 @@ test("skills CLI exits 0 for a completed review, 2 for Broken, and 1 on argument
   assert.equal(JSON.parse(broken.stdout).summary.statuses.broken, 1);
   const failure = run("--unknown");
   assert.equal(failure.status, 1);
-  assert.equal(failure.stderr.trim(), "Skill Doctor failed: Unknown option: --unknown");
+  assert.equal(failure.stderr.trim(), "Skills Checker failed: Unknown option: --unknown");
 });

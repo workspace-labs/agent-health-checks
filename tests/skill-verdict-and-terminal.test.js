@@ -113,3 +113,17 @@ test("project terminal preserves each report line and JSON preserves names, path
   assert.ok(report.includes("a\\u2066.js"));
   assert.doesNotMatch(report, /[\u200f\u2066\u061c]/u);
 });
+
+test("Skills Checker prints its name and the skill total on a complete header line", t => {
+  const root = fixture(t);
+  const text = cli(script, ["--root", root], 0);
+  assert.match(text, /^Skills Checker — 1 unique skills \(0 identical mirrors\)$/m);
+  assert.match(text, /Universal +map-guide/);
+});
+
+test("Project Checker opens the report with its name and the requested project label", t => {
+  const root = fixture(t);
+  const text = cli(projectScript, ["--path", root, "--name", "Map collection"], 0);
+  assert.equal(text.split("\n")[0], "Project Checker — Map collection");
+  assert.match(text, /Confirmed 0/);
+});

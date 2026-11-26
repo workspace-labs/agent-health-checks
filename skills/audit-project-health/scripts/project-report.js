@@ -70,7 +70,7 @@ function terminalPriority(finding) {
 
 function humanReport(report) {
   const lines = [
-    `Universal Project Doctor — ${report.projectName}`,
+    `Project Checker — ${report.projectName}`,
     `${report.status} · ${report.stack.join(" / ")} · ${report.fileCount} files · ${report.durationMs}ms`,
     `Confirmed ${report.summary.confirmed} · Likely ${report.summary.likely} · Recommendations ${report.summary.recommendation}`,
     "",
