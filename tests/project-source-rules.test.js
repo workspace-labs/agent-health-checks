@@ -120,3 +120,30 @@ test("bracket and optional calls on unrelated objects stay quiet", t => {
   ].join("\n");
   assert.deepEqual(audit(t, source).findings, []);
 });
+
+for (const [source, control] of [
+  ["eval.call(null, x);", "obj.eval.call(x);"],
+  ["window.eval.call(null, x);", "obj.window.eval.call(null, x);"],
+  ["(0, window.eval)(x);", "deliver(0, window.eval)(x);"],
+  ["window[`eval`](x);", "obj[`eval`](x);"],
+  ["const e = eval; e(x);", "const e = evaluate; e(x);"],
+]) {
+  test("dynamic execution evidence for " + source, t => {
+    const inert = [
+      control, "// " + source, "/* " + source + " */", JSON.stringify(source) + ";",
+      "`" + source.replaceAll("`", "\\`") + "`;", "const options = { eval: 1 };",
+    ].join("\n");
+    assert.deepEqual(audit(t, inert).findings, []);
+    const findings = audit(t, inert + "\n" + source).findings;
+    assert.deepEqual(findings.map(f => [f.code, f.line, f.message]), [
+      ["dynamic-code-execution", 7, "1 dynamic code execution primitive was found."],
+    ]);
+  });
+}
+
+test("taking the eval value at a line break with an implicit semicolon", t => {
+  const controls = ["const name = eval\n.name;", "const same = candidate === eval\nnext();", "const e = evaluate\ne(x);"];
+  assert.deepEqual(audit(t, controls.join("\n")).findings, []);
+  const report = audit(t, "const e = eval\ne(x);");
+  assert.deepEqual(report.findings.map(f => [f.code, f.line]), [["dynamic-code-execution", 1]]);
+});

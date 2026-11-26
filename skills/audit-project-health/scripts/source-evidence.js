@@ -234,6 +234,40 @@ function executableEvidence(source, electron, timeExpired) {
   // The tokenizer keeps the two punctuation marks in an optional chain separate.
   const afterOptionalChain = i => value(i) === "?" && value(i + 1) === "." ? i + 2 : i;
   const calledAt = i => value(afterOptionalChain(i)) === "(";
+  function assignedReference(start, after) {
+    if (value(start - 1) !== "=" || !/^[A-Za-z_$]/.test(value(start - 2) || "")) return false;
+    const following = value(after);
+    if (following === undefined || [";", ",", ")", "}", "]"].includes(following)) return true;
+    // A following identifier on a new line can begin a statement through semicolon insertion.
+    return /^[A-Za-z_$]/.test(following) && !["in", "instanceof"].includes(following) &&
+      /[\n\r\u2028\u2029]/.test(source.slice(tokens[after - 1].index, tokens[after].index));
+  }
+  function evalEvidenceAt(i) {
+    if (value(i - 1) === ".") return;
+    let name = i;
+    let after = i + 1;
+    if (globalEvalReceivers.has(value(i))) {
+      const property = value(after) === "." ? after + 1 : afterOptionalChain(after);
+      if (value(property) === "[") {
+        name = property + 1;
+        const literal = value(name);
+        // The tokenizer skips template text. Accept only the exact, interpolation-free key.
+        if (literal !== '"eval"' && literal !== "'eval'" &&
+            !(literal === "`" && source.startsWith("`eval`", tokens[name].index))) return;
+        if (value(name + 1) !== "]") return;
+        after = name + 2;
+      } else {
+        if (property === after || value(property) !== "eval") return;
+        name = property;
+        after = name + 1;
+      }
+    }
+    const throughCall = value(after) === "." && value(after + 1) === "call" && calledAt(after + 2);
+    // In fn(0, eval)(x) the second call invokes the function's return value.
+    const groupedCall = value(i - 1) === "," && value(i - 2) === "0" && tokens[i - 3]?.expressionStart &&
+      value(after) === ")" && calledAt(after + 1);
+    if (calledAt(after) || throughCall || groupedCall || assignedReference(i, after)) return tokens[name].index;
+  }
   for (let i = 0; i < tokens.length; i++) {
     if (i > 0 && i % 8192 === 0 && timeExpired()) return null;
     const { value: current, index } = tokens[i];
@@ -244,20 +278,9 @@ function executableEvidence(source, electron, timeExpired) {
       while (source[end] === " " || source[end] === "\t" || source[end] === "\r") end++;
       if (source[end] === ";" || source[end] === "\n" || end === source.length) debug.push(index);
     }
-    if (current === "eval") {
-      const directCall = previous !== "." && calledAt(i + 1);
-      // The opening parenthesis must group an expression. In fn(0, eval)(x)
-      // the second call invokes the function's return value.
-      const indirectCall = previous === "," && value(i - 2) === "0" && tokens[i - 3]?.expressionStart &&
-        next === ")" && calledAt(i + 2);
-      if (directCall || indirectCall) dynamic.push(index);
-    }
-    if (globalEvalReceivers.has(current) && previous !== ".") {
-      const property = next === "." ? i + 2 : afterOptionalChain(i + 1);
-      const dotted = property !== i + 1 && value(property) === "eval" && calledAt(property + 1);
-      const bracket = value(property) === "[" && ['"eval"', "'eval'"].includes(value(property + 1)) &&
-        value(property + 2) === "]" && calledAt(property + 3);
-      if (dotted || bracket) dynamic.push(tokens[bracket ? property + 1 : property].index);
+    if (current === "eval" || globalEvalReceivers.has(current)) {
+      const evidence = evalEvidenceAt(i);
+      if (evidence !== undefined) dynamic.push(evidence);
     }
     if (current === "new" && next === "Function" && value(i + 2) === "(") dynamic.push(index);
     if (current === "require" && previous !== "." && next === "." && value(i + 2) === "main" &&

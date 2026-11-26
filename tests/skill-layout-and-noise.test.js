@@ -103,3 +103,17 @@ test("Markdown and HTML links inside multiline code spans do not make reference 
     ["deep-reference", "Reference is reachable only through another reference: references/e.md"],
   ]);
 });
+
+test("a guide naming root and bundled Markdown files makes them direct pointers", t => {
+  const findings = scan(t, [
+    "[index](README.md)", "The list lives in `DROPPED.md` and PLAIN.md.",
+    "Other entries include `references/quoted.md` and references/plain.md.",
+    "An example backup is indirect.md.bak, in a separate folder named old/indirect.md.",
+    "This table also points to `Old Editions.md`.",
+    "The collection also describes ABSENT.md.",
+  ].join("\n"), {
+    "README.md": "[a](DROPPED.md) [b](PLAIN.md) [c](references/quoted.md) [d](references/plain.md) [e](Old%20Editions.md) [only here](indirect.md)",
+    "DROPPED.md": "", "PLAIN.md": "", "references/quoted.md": "", "references/plain.md": "", "Old Editions.md": "", "indirect.md": "",
+  });
+  assert.deepEqual(findings.map(f => [f.code, f.file]), [["deep-reference", "indirect.md"]]);
+});

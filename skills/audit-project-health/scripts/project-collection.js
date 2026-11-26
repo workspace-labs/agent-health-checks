@@ -60,6 +60,23 @@ function isProtectedFile(name, rel) {
   return !TEMPLATE_SUFFIX.test(name) && (SECRET_NAMES.test(name) || /(?:^|\/)\.aws\/credentials$/i.test(rel));
 }
 
+function hasZipSignature(absolute, listed, timeExpired) {
+  if (listed.size < 4 || timeExpired()) return false;
+  let fd;
+  try {
+    if (fs.realpathSync(absolute) !== absolute || timeExpired()) return false;
+    fd = fs.openSync(absolute, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile() || opened.dev !== listed.dev || opened.ino !== listed.ino || timeExpired()) return false;
+    const header = Buffer.alloc(4);
+    return fs.readSync(fd, header, 0, 4, 0) === 4 && header.readUInt32BE(0) === 0x504b0304;
+  } catch {
+    return false; // An unverified .key keeps its protected classification.
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 function inside(parent, child) {
   const rel = path.relative(parent, child);
   return rel === "" || (!rel.startsWith(".." + path.sep) && rel !== ".." && !path.isAbsolute(rel));
@@ -259,7 +276,15 @@ function collectProject(root, limits, rootEntries, started = Date.now(), profile
       }
       admitted++;
       if (protectedFile) {
-        files.push({ rel, absolute, size: stat.size, secret: true, binary: true, skipped: true, text: "", digest: `secret:${stat.size}` });
+        // A name independently protected as .env.* stays unopened.
+        const keyDocument = /\.key$/i.test(entry.name) && !/^\.env\./i.test(entry.name) &&
+          hasZipSignature(absolute, stat, timeExpired);
+        if (keyDocument) notices.push({
+          code: "zip-key-document", actionable: false,
+          message: `Skipped ${rel}: ZIP-format .key document.`,
+        });
+        files.push({ rel, absolute, size: stat.size, secret: !keyDocument, keyDocument, binary: true, skipped: true,
+          text: "", digest: `${keyDocument ? "binary" : "secret"}:${stat.size}` });
         continue;
       }
       pending.push({ rel, absolute, size: stat.size, dev: stat.dev, ino: stat.ino, ext: path.extname(entry.name).toLowerCase() });

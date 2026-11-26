@@ -57,7 +57,7 @@ The profile is off by default. Pass `--profile workspace` on the command line or
 - **React / Next.js** projects receive the JavaScript and TypeScript checks and the general large-file check.
 - **Electron** checks cover JavaScript plus `nodeIntegration`, `contextIsolation`, `sandbox`, and `webSecurity`. The security relevance of these settings was checked 2026-11-26 against [Electron’s security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
 - **PWA** checks cover manifest and service-worker presence when package metadata advertises PWA tooling.
-- **Generic** checks cover README, oversized files, secret-file presence without reading values, and bounded-scan notices.
+- **Generic** checks cover README, oversized files, secret-file presence, and bounded-scan notices. The only look inside a protected name is a four-byte ZIP format check on regular files protected solely by their `.key` suffix. A ZIP signature produces a document notice. A short, unreadable or nonmatching file retains the secret finding. The checker never prints or hashes those four bytes.
 
 Adapters intentionally prefer a small explainable rule set over broad regex guessing. Extend the scanner only with a deterministic fixture proving the rule and its false-positive boundary.
 

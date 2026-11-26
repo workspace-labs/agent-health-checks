@@ -53,7 +53,7 @@ test("skills JSON preserves finding identity across identical installations", (t
   assert.equal(report.readOnly, true);
   assert.equal(new Date(report.generatedAt).toISOString(), report.generatedAt);
   assert.deepEqual(report.summary, {
-    skills: 1, mirrors: 1, findings: 1,
+    skills: 1, mirrors: 1, findings: 1, closestPairs: [],
     statuses: { broken: 1, review: 0, workspace: 0, claude: 0, codex: 0, universal: 0 },
   });
 

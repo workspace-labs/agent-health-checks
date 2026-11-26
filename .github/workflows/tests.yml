@@ -19,3 +19,40 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: node --test
+      - name: Verify README PowerShell install
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $readme = Get-Content -LiteralPath README.md -Raw
+          $blocks = [regex]::Matches($readme, '(?ms)^\*\*Windows PowerShell\*\*\s+`{3}powershell\r?\n(.+?)^`{3}\r?$')
+          if ($blocks.Count -ne 1) { throw 'Expected one Windows PowerShell install block in README.md' }
+          $install = [scriptblock]::Create($blocks[0].Groups[1].Value)
+          $tempHome = Join-Path $env:RUNNER_TEMP ([guid]::NewGuid().ToString())
+          New-Item -ItemType Directory -Path $tempHome | Out-Null
+          try {
+            $env:HOME = $tempHome
+            $env:USERPROFILE = $tempHome
+            & $install
+            $destination = Join-Path $tempHome '.claude\skills'
+            $packages = @{ 'audit-agent-skills' = 'audit-skills.js'; 'audit-project-health' = 'audit-project.js' }
+            foreach ($name in $packages.Keys) {
+              foreach ($file in @('SKILL.md', "scripts/$($packages[$name])")) {
+                $sourceHash = (Get-FileHash -LiteralPath "skills/$name/$file").Hash
+                $installedHash = (Get-FileHash -LiteralPath "$destination/$name/$file").Hash
+                if ($installedHash -ne $sourceHash) { throw "Incomplete install of $name/$file" }
+              }
+              Set-Content -LiteralPath "$destination/$name/SKILL.md" -Value "Preserve $name" -NoNewline
+            }
+            $reason = ''
+            try { & $install } catch { $reason = $_.Exception.Message }
+            $expected = Join-Path $destination 'audit-agent-skills'
+            if ($reason -ne "Already exists: $expected") { throw "Expected overwrite refusal, got '$reason'" }
+            foreach ($name in $packages.Keys) {
+              if ((Get-Content -LiteralPath "$destination/$name/SKILL.md" -Raw) -ne "Preserve $name") {
+                throw "Second install overwrote $name"
+              }
+            }
+          } finally {
+            Remove-Item -LiteralPath $tempHome -Recurse -Force
+          }

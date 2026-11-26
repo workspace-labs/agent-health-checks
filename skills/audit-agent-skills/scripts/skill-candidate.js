@@ -122,7 +122,7 @@ function auditCandidate(candidate, limits) {
   const readableFiles = collected.files.filter(f => !f.binary && !f.skipped);
   const links = new Map(readableFiles.filter(f => markdownFile(f.rel)).map(f => [f.rel, new Set()]));
   for (const file of readableFiles) {
-    for (const ref of referencesIn(file, inspector.bundleFolders)) {
+    for (const ref of referencesIn(file, inspector.bundleFolders, links)) {
       let result = inspector.inspect(ref);
       if (ref.tryRoot && result.state !== "present") {
         const alternative = inspector.inspect({ ...ref, base: "." });

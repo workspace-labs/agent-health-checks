@@ -12,7 +12,7 @@ const { relativeImportLiterals } = require("./import-context");
 const { parsePackage } = require("./package-text");
 const { pathNotice, groupPathNotices, humanReport } = require("./project-report");
 
-const CHECKER_VERSION = "0.10.0";
+const CHECKER_VERSION = "0.11.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,
@@ -567,7 +567,7 @@ function auditProject(options = {}) {
     recommendation: "Keep secrets outside distributable source and document safe local configuration.",
   });
 
-  const largeFiles = collected.files.filter((file) => file.size > 1024 * 1024 && !file.secret).sort((a, b) => b.size - a.size || compareNames(a.rel, b.rel));
+  const largeFiles = collected.files.filter((file) => file.size > 1024 * 1024 && !file.secret && !file.keyDocument).sort((a, b) => b.size - a.size || compareNames(a.rel, b.rel));
   const oversized = [];
   const intentionalLarge = [];
   const nonProductionLarge = [];

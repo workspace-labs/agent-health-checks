@@ -36,6 +36,11 @@ for (const [label, source, result] of [
   ["single quotes and comment", "'Use when sorting someone''s color swatches into wavelength order.' # note", "Use when sorting someone's color swatches into wavelength order."],
   ["indented plain text", "\n  Use when arranging color swatches\n  by their spectral wavelengths.", desc],
   ["wrapped plain text", "Use when arranging color swatches\n  by their spectral wavelengths.", desc],
+  ["wrapped double quotes", '"Use when arranging color swatches  \n    by their spectral wavelengths." # note', desc],
+  ["wrapped single quotes", "'Use when arranging color swatches\n  by their spectral wavelengths.'", desc],
+  ["quoted blank lines", "'Use when arranging someone''s swatches.\n\n  \n    # Keep this text.'",
+    "Use when arranging someone's swatches.\n\n# Keep this text."],
+  ["escaped double-quoted line break", '"Use when arranging color swat\\\n    ches by their spectral wavelengths."', desc],
   ["folded block", ">-\n  Use when arranging color swatches\n  by their spectral wavelengths.", desc],
   ["literal block", "|-\n  Use when arranging color swatches\n  by their spectral wavelengths.", "Use when arranging color swatches\nby their spectral wavelengths."],
 ]) {
@@ -103,6 +108,8 @@ test("checks every entry of a dependency list with accurate source lines", t => 
 for (const [label, config, code, message, line] of [
   ["invalid", "policy:\n  allow_implicit_invocation: true\n  allow_implicit_invocation: false", "invalid-yaml", "agents/openai.yaml is not valid YAML", 3],
   ["unsupported", "policy: *defaults", "unverified-yaml", "agents/openai.yaml could not be verified", 1],
+  ["unclosed agent quote", 'interface:\n  default_prompt: "Use $swatches', "unverified-yaml", "agents/openai.yaml could not be verified", 2],
+  ["wrapped agent quote", 'interface:\n  default_prompt: "Use $swatches\n    when selecting colors."', "unverified-yaml", "agents/openai.yaml could not be verified", 2],
 ]) {
   test("reports " + label + " agent YAML with its line", t => {
     const skill = scan(t, header, config);
@@ -194,3 +201,16 @@ test("wrapped plain scalars keep consecutive blank lines as paragraph breaks", t
   assert.deepEqual(skill.findings, []);
   assert.equal(skill.description, "Use when exploring pigments and color arrangements.\n\nCompare these swatches.");
 });
+
+for (const quote of ["'", '"']) {
+  test("an unclosed " + quote + " reports invalid YAML and exits 2", t => {
+    const root = fixture(t, wrap("name: swatches\ndescription: " + quote + "Use when arranging color\n  swatches by wavelength."));
+    const run = spawnSync(process.execPath, [script, "--root", root, "--json"], {
+      env: { ...process.env, HOME: root, USERPROFILE: root }, encoding: "utf8",
+    });
+    assert.ifError(run.error);
+    const skill = JSON.parse(run.stdout).skills[0];
+    assert.deepEqual([run.status, skill.status, skill.findings.map(f => [f.code, f.severity, f.message, f.line])],
+      [2, "Broken", [["invalid-yaml", "error", "frontmatter is not valid YAML", 3]]]);
+  });
+}

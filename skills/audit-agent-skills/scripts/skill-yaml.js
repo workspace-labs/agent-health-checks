@@ -13,7 +13,7 @@ function scalar(value) {
 
 // A bounded YAML subset for the two metadata documents. Keep the source line
 // with each mapping key, including separate entries in a sequence of maps.
-function readYaml(source, firstLine) {
+function readYaml(source, firstLine, foldFrontmatterQuotes = false) {
   const rows = source.split(/\r?\n/).map((text, index) => {
     const indent = /^ */.exec(text)[0].length;
     return { text, indent, content: text.slice(indent), line: firstLine + index };
@@ -91,6 +91,42 @@ function readYaml(source, firstLine) {
     return undefined;
   }
 
+  // Fold a flow scalar before decoding it. Inside quotes a hash is literal and
+  // blank lines count, so read the physical rows without next()'s comment skipping.
+  function foldQuoted(raw, indent, row) {
+    const double = raw[0] === '"';
+    const marker = double ? /\\[^\n]?|"/g : /''|'/g;
+    const parts = [];
+    let line = raw;
+    marker.lastIndex = 1; // Skip the opening quote on the first row only.
+    for (;;) {
+      let match, escapedBreak = false;
+      while ((match = marker.exec(line))) {
+        if (match[0] === raw[0]) {
+          parts.push(line);
+          return parts.join("");
+        }
+        escapedBreak = double && match[0] === "\\";
+      }
+      let end = line.length;
+      if (escapedBreak) end--;
+      else while (end && (line[end - 1] === " " || line[end - 1] === "\t")) end--;
+      parts.push(line.slice(0, end));
+
+      const first = cursor;
+      while (cursor < rows.length && /^[ \t]*$/.test(rows[cursor].content)) cursor++;
+      if (cursor === rows.length || rows[cursor].indent <= indent) {
+        flag("invalid-yaml", row);
+        return undefined;
+      }
+      const blanks = cursor - first;
+      if (blanks) parts.push((double ? "\\n" : "\n").repeat(blanks));
+      else if (!escapedBreak) parts.push(" ");
+      line = rows[cursor++].content.replace(/^[ \t]+/, "");
+      marker.lastIndex = 0;
+    }
+  }
+
   function block(parentIndent, style, chomp) {
     const parts = [];
     let width;
@@ -122,6 +158,10 @@ function readYaml(source, firstLine) {
   function readValue(raw, indent, row, depth, sequenceItem = false) {
     const style = /^([|>])([+-]?)(?:\s+#.*)?\s*$/.exec(raw);
     if (style) return block(indent, style[1], style[2]);
+    if (foldFrontmatterQuotes && /^["']/.test(raw)) {
+      raw = foldQuoted(raw, indent, row);
+      if (raw === undefined) return undefined;
+    }
     const child = next();
     if (!raw || raw.startsWith("#")) {
       if (!child || child.indent < indent || (child.indent === indent && (sequenceItem || !isItem(child.content)))) return "";
@@ -211,7 +251,7 @@ function parseFrontmatter(raw) {
   const closing = end.exec(text);
   if (!closing) return { ok: false, error: "YAML frontmatter is not closed with ---", fm: {}, body: text, front: "" };
   const front = text.slice(opening[0].length, closing.index).replace(/\r?\n$/, "");
-  const parsed = readYaml(front, 2);
+  const parsed = readYaml(front, 2, true);
   return { ok: !parsed.issue, fm: parsed.value, lines: parsed.lines, issue: parsed.issue,
     unknownFields: parsed.unknownFields, unknownKeys: parsed.unknownKeys,
     body: text.slice(end.lastIndex).replace(/^\n/, ""), front };

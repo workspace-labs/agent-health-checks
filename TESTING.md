@@ -11,6 +11,38 @@ node --test
 
 Run from the repository root. The suite uses Node’s built-in test runner and creates its fixtures in the system temporary directory. See the dated runs below for the exact versions tested.
 
+## Step 7 Part 3 · 0.11.0 · 2026-11-26
+
+On macOS, `node --test --test-reporter=tap` passed **690 tests** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1**, with zero failures, cancellations or skips. Every run had its own temporary home and temporary-file directory. Both directories were empty after each run.
+
+### Regressions and controls
+
+The release baseline was `v0.10.0` at `41cceb5`. The new regression fixtures exposed the missing behavior before implementation. The final CLI rerun confirmed the following results.
+
+| Test file under `tests/` | What changed and why |
+|---|---|
+| `skill-coverage-and-pairs.test.js` | The existing ranking case now expects only the one positive pair. A new case checks unrelated descriptions in both JSON and terminal output. |
+| `skill-report-contract.test.js` | The existing single-skill summary now explicitly includes an empty `closestPairs` array. |
+| `skill-layout-and-noise.test.js` | A new case checks direct filenames in prose and backticks, at the root and under a bundled folder, with an indirect-only link, a missing example and near-matching names as controls. |
+| `project-source-rules.test.js` | Five cases cover the two `.call` forms, the grouped global reference, the literal template key and the alias assignment. A sixth covers the same assignment with an implicit semicolon. Unrelated receivers, comments, strings, template text, an object key, a comparison and longer names stay quiet. |
+| `project-files-and-order.test.js` | The protected-file access test now permits exactly one format probe on its eligible key. Four new cases cover a large ZIP-signed document, a Keynote folder and PEM control, the exact byte range and content-independent digest, and short, near-match and unreadable keys. A name also protected by the environment-file rule stays unopened. |
+| `skill-yaml.test.js` | Four decoding cases cover wrapped double and single quotes, blank lines and an escaped line break. Two CLI cases pin the Broken verdict and exit 2 for unclosed quotes. Two agent-config controls preserve the prior review finding in `agents/openai.yaml`. |
+
+### Read-only toolbox comparison
+
+During the work, the default inventory went from 81 to 80 unique skills as the synced `underwater-acoustics` entry disappeared. The initial 0.10.0 scan saw 216 findings and one Broken skill. To compare releases against the same files, both checkers below ran back to back from the same working directory against the same 80 skill identities.
+
+| Skills Checker | Unique skills | Identical mirrors | Universal | Needs review | Broken | Findings | Exit |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0.10.0 | 80 | 56 | 38 | 42 | 0 | 214 | 2 |
+| 0.11.0 | 80 | 56 | 38 | 42 | 0 | 213 | 2 |
+
+The other three status counts were zero in both reports. No skill changed status. The only finding removed was `deep-reference` on `hidden-prompt-library/DROPPED.md`, which the guide names directly.
+
+### Windows install coverage
+
+The Windows Node 20, 22 and 24 jobs each extract the PowerShell block from this checkout's README, run it with a temporary `HOME` and `USERPROFILE`, and compare both installed guides and checker scripts with the originals. They mark both installed guides, run the block again, require the expected refusal and verify both markers survive. Local verification covered workflow structure and README block extraction with LF and CRLF. Execution on Windows awaits the authorized push and hosted run.
+
 ## Step 7 Part 1 · 0.10.0 · 2026-11-26
 
 ### Local test matrix

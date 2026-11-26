@@ -37,7 +37,7 @@ test("configuration templates are ordinary files and a real environment file is 
   assert.deepEqual(report.findings.map(f => [f.code, f.file]), [["secret-files-present", ".env"]]);
 });
 
-test("all protected regular files stay unread and the finding identifies every path", t => {
+test("only the .key format check can open a protected regular file and every secret path is identified", t => {
   const names = [".env", ".npmrc", ".netrc", ".pypirc", ".git-credentials", "config/credentials.json",
     "id_ecdsa", "id_dsa", ".aws/credentials", "store.keystore", "store.jks", "public.pem", "talk.key",
     "id_rsa", "id_ed25519", "keys.pfx", "keys.p12"];
@@ -48,7 +48,7 @@ test("all protected regular files stay unread and the finding identifies every p
   const read = [];
   watchFileReads(t, filename => { if (watched.has(filename)) read.push(filename); });
   const report = auditProject({ projectPath: root });
-  assert.deepEqual(read, []);
+  assert.deepEqual(read, [path.join(fs.realpathSync(root), "talk.key")]);
   assert.equal(report.totalBytes, Buffer.byteLength("readme") + Buffer.byteLength("ordinary"));
   assert.equal(report.status, "Needs attention");
   assert.equal(report.findings.length, 1);
@@ -58,6 +58,82 @@ test("all protected regular files stay unread and the finding identifies every p
   assert.equal(finding.file, [...names].sort()[0]);
   assert.equal(finding.verify, "Confirm ignore rules and version-control status without printing secret values. Files: " + [...names].sort().join(", ") + ".");
   assert.ok(!JSON.stringify(report).includes("PRIVATE-FIXTURE-CONTENTS"));
+});
+
+test("a ZIP-signed .key file is named once as a document, even when large", t => {
+  const document = Buffer.alloc(1024 * 1024 + 1, 65);
+  Buffer.from([0x50, 0x4b, 0x03, 0x04]).copy(document);
+  const root = project(t, { "README.md": "", "app.js": "", "talk.key": document });
+  const report = auditProject({ projectPath: root });
+  assert.equal(report.status, "Healthy");
+  const named = report.notices.filter(item => item.message.includes("talk.key"));
+  assert.equal(named.length, 1);
+  assert.match(named[0].message, /ZIP/i);
+  assert.equal(named[0].actionable, false);
+  assert.equal(report.totalBytes, 0);
+});
+
+test("a .key directory is still a package folder and a PEM .key file stays protected", t => {
+  const root = project(t, { "README.md": "", "app.js": "", "slides.key/index.txt": "package" });
+  const clean = auditProject({ projectPath: root });
+  assert.equal(clean.status, "Healthy");
+  assert.equal(clean.notices.some(n => n.message.includes("slides.key")), false);
+  fs.writeFileSync(path.join(root, "private.key"), "-----BEGIN PRIVATE KEY-----\nfixture only\n");
+  const report = auditProject({ projectPath: root });
+  assert.deepEqual(report.findings.map(f => [f.code, f.file, f.severity]), [["secret-files-present", "private.key", "high"]]);
+  assert.ok(!JSON.stringify(report).includes("BEGIN PRIVATE"));
+});
+
+test("a key format probe reads only the first four bytes and never fingerprints their values", t => {
+  const key = "case.KEY";
+  const root = project(t, { "README.md": "", "app.js": "", [key]: "ABCDprivate-tail" });
+  const target = path.join(fs.realpathSync(root), key);
+  const open = fs.openSync;
+  const read = fs.readSync;
+  const close = fs.closeSync;
+  let keyFd;
+  const reads = [];
+  t.mock.method(fs, "openSync", (filename, ...args) => {
+    const fd = open(filename, ...args);
+    if (filename === target) keyFd = fd;
+    return fd;
+  });
+  t.mock.method(fs, "readSync", (fd, buffer, offset, length, position) => {
+    if (fd === keyFd) reads.push([position, length]);
+    return read(fd, buffer, offset, length, position);
+  });
+  t.mock.method(fs, "closeSync", fd => {
+    if (fd === keyFd) keyFd = undefined;
+    return close(fd);
+  });
+  const before = auditProject({ projectPath: root });
+  assert.deepEqual(reads, [[0, 4]]);
+  fs.writeFileSync(target, "WXYZanother-tail");
+  const after = auditProject({ projectPath: root });
+  assert.deepEqual(reads, [[0, 4], [0, 4]]);
+  assert.equal(keyFd, undefined);
+  assert.equal(before.digest, after.digest);
+  assert.deepEqual(before.findings, after.findings);
+  assert.doesNotMatch(JSON.stringify(after), /WXYZ|another-tail/);
+});
+
+test("truncated, near-match and unreadable .key files remain protected", t => {
+  const root = project(t, { "README.md": "", "short.key": Buffer.from([0x50, 0x4b, 0x03]),
+    "near.key": Buffer.from([0x50, 0x4b, 0x03, 0x05]), "denied.key": Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    ".env.production.key": Buffer.from([0x50, 0x4b, 0x03, 0x04]) });
+  const open = fs.openSync;
+  const opened = [];
+  t.mock.method(fs, "openSync", (filename, ...args) => {
+    opened.push(path.basename(filename));
+    if (path.basename(filename) === "denied.key") throw new Error("simulated denial");
+    return open(filename, ...args);
+  });
+  const report = auditProject({ projectPath: root });
+  assert.equal(report.findings.length, 1);
+  assert.equal(report.findings[0].code, "secret-files-present");
+  assert.match(report.findings[0].verify, /Files: \.env\.production\.key, denied\.key, near\.key, short\.key\./);
+  assert.ok(!opened.includes(".env.production.key"));
+  assert.ok(!report.notices.some(n => /\.key\b/.test(n.message)));
 });
 
 test("the supported README spellings count only at the project root", t => {

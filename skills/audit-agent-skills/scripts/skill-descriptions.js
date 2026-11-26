@@ -40,7 +40,7 @@ function closestDescriptions(skills) {
       const b = descriptions[j];
       if (a.name === b.name) continue;
       const pair = { names: [a.name, b.name], score: sharedWordScore(a.words, b.words) };
-      if (best.length === 5 && order(pair, best[4]) >= 0) continue;
+      if (!pair.score || (best.length === 5 && order(pair, best[4]) >= 0)) continue;
       const previous = best.findIndex(item => item.names[0] === a.name && item.names[1] === b.name);
       if (previous >= 0) {
         if (best[previous].score >= pair.score) continue;

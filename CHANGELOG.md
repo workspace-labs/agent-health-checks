@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0] - 2026-11-26
+
+- Skills Checker lists description pairs only when they share job words. It recognizes files named directly in the skill guide, including filenames written in ordinary text, so those files no longer receive an indirect-reference warning.
+- Quoted YAML values can wrap onto indented lines. An unclosed quote now gives “frontmatter is not valid YAML”, marks the skill Broken and exits 2. In 0.10.0 an otherwise clean skill with this error received “frontmatter could not be verified”, Needs review and exit 0.
+- Project Checker recognizes five additional ways JavaScript can call or take a reference to global eval. A ZIP-format presentation named `*.key` gets a document notice. The checker reads only the first four bytes for that format check. Other key contents stay protected.
+- Each Windows CI job now tries the published PowerShell install commands in a temporary home and verifies that a second install preserves both existing copies.
+
 ## [0.10.0] - 2026-11-26
 
 - The printed reports, guides and agent cards now use the names **Skills Checker** and **Project Checker** so readers can follow one name from installation to results. The Skills Checker failure line uses its new name too.

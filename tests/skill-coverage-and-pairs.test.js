@@ -142,11 +142,10 @@ test("pre-install comparison ranks related job descriptions first, preserves cle
   const report = JSON.parse(child(context, [checker, ...roots, "--json"]));
   assert.equal(report.summary.statuses.universal, 6);
   assert.equal(report.summary.findings, 0);
-  assert.equal(report.summary.closestPairs.length, 5);
+  assert.equal(report.summary.closestPairs.length, 1);
   const top = report.summary.closestPairs[0];
   assert.deepEqual(top.names, ["branch-notes", "diff-review"]);
   assert.ok(top.score > 0 && top.score <= 1);
-  assert.equal(report.summary.closestPairs[1].score, 0);
   assert.deepEqual(auditSkillRoots({ roots: [installed, candidate] }).summary.closestPairs, report.summary.closestPairs);
   assert.match(child(context, [checker, ...roots]), /^Closest descriptions$/m);
   install(path.join(installed, "branch-notes"), others.climate);
@@ -214,4 +213,13 @@ test("coverage skips a loop to the location's parent and an alias to a counted s
   assert.deepEqual(report.coverage, [
     { path: path.join("~", ".claude", "plugins"), kind: "plugin", count: 1, partial: false },
   ]);
+});
+
+test("unrelated skills leave the closest descriptions list empty in both outputs", t => {
+  const context = fixture(t);
+  install(path.join(context.cwd, "a"), "plan a garden");
+  install(path.join(context.cwd, "b"), "convert currency rates");
+  const args = [checker, "--root", context.cwd];
+  assert.deepEqual(JSON.parse(child(context, [...args, "--json"])).summary.closestPairs, []);
+  assert.match(child(context, args), /^Closest descriptions: none$/m);
 });

@@ -78,11 +78,13 @@ function printHuman(report, explicitRoots) {
   console.log(report.disclaimer);
   const characters = report.summary.descriptionCharacters;
   if (characters) console.log(`Description characters — Claude ${characters.claude} (1% of context window estimate) · Codex ${characters.codex} (2% of context window, 8,000 characters when unknown, estimate)`);
-  if (report.summary.closestPairs) {
+  if (report.summary.closestPairs.length) {
     console.log("Closest descriptions");
     for (const { names, score } of report.summary.closestPairs) {
       console.log(terminalText(`  ${names[0]} / ${names[1]} — ${(score * 100).toFixed(1)}%`));
     }
+  } else {
+    console.log("Closest descriptions: none");
   }
   for (const skill of report.skills) {
     console.log("");

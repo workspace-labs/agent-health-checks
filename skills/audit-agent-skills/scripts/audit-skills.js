@@ -11,7 +11,7 @@ const { auditCandidate } = require("./skill-candidate");
 const { inspectRoot, hasGuide, discoveryDirectory, discoverInstalls, uncheckedLocations, refusedLink } = require("./skill-discovery");
 const { parseCli, compactSkill, terminalText, printHuman } = require("./skill-report");
 
-const CHECKER_VERSION = "0.10.0";
+const CHECKER_VERSION = "0.11.0";
 const DEFAULT_LIMITS = Object.freeze({ maxFiles: 320, maxFileBytes: 1024 * 1024, maxTotalBytes: 6 * 1024 * 1024 });
 
 function mergeInstallations(copies) {
@@ -139,8 +139,7 @@ function auditSkillRoots(options = {}) {
   const statuses = { universal: 0, claude: 0, codex: 0, workspace: 0, review: 0, broken: 0 };
   unique.forEach(skill => { statuses[skill.statusKey]++; });
   const summary = { skills: unique.length, mirrors, findings: unique.reduce((n, s) => n + s.findings.length, 0), statuses };
-  const pairs = closestDescriptions(unique);
-  if (pairs.length) summary.closestPairs = pairs;
+  summary.closestPairs = closestDescriptions(unique);
   const characters = descriptionCharacters(unique, contexts);
   if (characters) summary.descriptionCharacters = characters;
   return {

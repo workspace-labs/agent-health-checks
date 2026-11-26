@@ -57,7 +57,7 @@ function inlineCodeLookup(lines) {
 // bundled folder or the skill-directory variable use the skill's installation directory.
 const markdownFile = name => /\.(?:md|markdown)$/i.test(name);
 
-function referencesIn(file, bundleFolders) {
+function referencesIn(file, bundleFolders, knownMarkdown = null) {
   const refs = new Map();
   const yaml = file.rel === "agents/openai.yaml";
   if (!yaml && !markdownFile(file.rel)) return refs.values();
@@ -82,7 +82,8 @@ function referencesIn(file, bundleFolders) {
     }
     if (fence && !shell) continue;
 
-    function add(raw, kind, instruction = false) {
+    const guideProse = file.rel === "SKILL.md" && !fence && !/^(?: {4}|\t)/.test(line);
+    function add(raw, kind, instruction = false, mention = false) {
       const link = kind !== "text";
       let value = raw.trim();
       if (!link) value = value.replace(/[.,;:!?]+$/, "").replace(/:\d+(?::\d+)?$/, "");
@@ -96,7 +97,9 @@ function referencesIn(file, bundleFolders) {
       const absolute = /^(?:~(?:\/|$)|\/|file:)/i.test(target) || path.win32.isAbsolute(target);
       const bundled = bundleFolders.has(target.split("/")[0]);
       const conventional = entryDocument && /^(?:\.\/)?(?:scripts|references|assets)\/.+/.test(target);
-      const explicit = anchored || target.startsWith("./") || bundled || conventional;
+      // A named guide already in this skill is a direct pointer even without a link or a verb.
+      const namedGuide = mention && guideProse && knownMarkdown?.has(target);
+      const explicit = anchored || target.startsWith("./") || bundled || conventional || namedGuide;
       // Filenames mentioned as examples or source-tree conventions do not direct the
       // reader to open them. Ambiguous file operands in instructions still get reviewed.
       const fileLike = /(?:^|\/)[^./\s][^/]*\.[a-z\d]{1,12}$/i.test(target);
@@ -179,6 +182,10 @@ function referencesIn(file, bundleFolders) {
         }
         // A code span can contain either a single path (including spaces) or a command.
         const span = match[1];
+        if (guideProse && knownMarkdown?.has(span)) {
+          add(span, "text", instruction, true);
+          continue;
+        }
         const words = Array.from(span.matchAll(/"([^"]+)"|'([^']+)'|([^\s]+)/g), w => w[1] || w[2] || w[3]);
         const first = words[0] || "";
         const isCommand = words.length > 1 && (!first.includes("/") || /\.[\w-]+$/.test(first) ||
@@ -190,7 +197,7 @@ function referencesIn(file, bundleFolders) {
           }
         } else add(span, "text", instruction);
       } else if (!/(?:^|\s)(?:--output(?:-dir)?|-o)\s*=?\s*$/.test(prefix)) {
-        add(match[3], "text", instruction);
+        add(match[3], "text", instruction, guideProse && !inCode(i, match.index + match[0].length - match[3].length));
       }
     }
   }
