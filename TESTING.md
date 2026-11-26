@@ -456,3 +456,38 @@ The default included the demo scripts. It found four high `electron-web-security
 **Step 5 fix round 1.** All four Node versions above passed 624/624 tests with zero skips. On `9c4bae8`, 40 source files of 400,000 bytes exhausted the default budget and hid the missing test script. The corrected checker reports both `missing-test-script` and `source-not-read`. The eight-byte source-order test now uses a nested package manifest because only the root manifest takes precedence over source. The 100-byte README fixture and its one-byte control still detect eval.
 
 On the same baseline, a second `--path` silently selected the second folder. The corrected CLI exits 1 with empty stdout and one diagnostic on stderr. The regression tests cover the missing-first-folder example and all eight value options across the two argument forms. The read-only app audit with `--profile workspace` again returned Watch with the same four findings.
+
+#### GitHub Actions for 0.8.0
+
+All nine jobs passed on commit `c090266`. Each cell shows **passed / skipped** out of 624 tests. Every job reported zero failures. [GitHub Actions run 45745648718](https://github.com/workspace-labs/agent-health-checks/actions/runs/45745648718)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 624 / 0 | 624 / 0 | 624 / 0 |
+| Ubuntu Linux | 623 / 1 | 623 / 1 | 623 / 1 |
+| Windows | 606 / 18 | 606 / 18 | 606 / 18 |
+
+Each Ubuntu job skipped `the refusal recognizes alternate home spelling on case-insensitive volumes` because the runner's filesystem is case-sensitive. This test passed on macOS and Windows. [Ubuntu job log](https://github.com/workspace-labs/agent-health-checks/actions/runs/45745648718/job/139660911231)
+
+Each Windows job skipped the 16 symbolic-link tests carried forward from 0.7.0 and two link-reporting tests added in 0.8.0. All 18 passed on macOS and Ubuntu. [Windows job log](https://github.com/workspace-labs/agent-health-checks/actions/runs/45745648718/job/139660911070)
+
+| Test file under `tests/` | Skipped test name | Windows skip |
+|---|---|---|
+| `project-coverage.test.js` | a symlinked info directory cannot supply ignore rules | Carried forward |
+| `project-doctor-context.test.js` | ordinary in-project links stay visible without duplicating findings from their target | Carried forward |
+| `project-doctor-reading.test.js` | TypeScript substitution refuses a matching source symlink escaping the project | Carried forward |
+| `project-doctor-reading.test.js` | tablet symlinked metadata cannot exclude the snapshot | Carried forward |
+| `project-doctor.test.js` | scan bounds and escaping symlinks remain visible | Carried forward |
+| `project-doctor.test.js` | broken project symlinks are disclosed with a safe resolution code | Carried forward |
+| `project-entry-checks.test.js` | links to external files and output directories cannot confirm missing main or bin | Carried forward |
+| `project-import-resolution.test.js` | imports resolve internal file and directory links and refuse links crossing the project boundary | Carried forward |
+| `project-import-resolution.test.js` | absolute internal links resolve through the spelling used to open the project | Carried forward |
+| `project-import-resolution.test.js` | repeated metadata checks read a link only once per audit | Carried forward |
+| `project-import-resolution.test.js` | a sibling link cannot prove an external import is missing | Carried forward |
+| `project-report-noise.test.js` | 3000 broken links respect the file bound and fit in one ten-example notice | New in 0.8.0 |
+| `project-report-noise.test.js` | a lone broken link keeps its path and reason and a valid internal link stays a distinct notice | New in 0.8.0 |
+| `skill-doctor.test.js` | symlinks escaping a declared root are refused | Carried forward |
+| `skill-doctor.test.js` | broken skill symlinks are explicit safety findings | Carried forward |
+| `skill-doctor.test.js` | refused root symlinks still carry a stable, unique audit digest | Carried forward |
+| `skill-references.test.js` | a reference passing through an external link cannot confirm presence or absence | Carried forward |
+| `skill-references.test.js` | an internal link can resolve within the skill and normalized spellings on one line yield one finding | Carried forward |
