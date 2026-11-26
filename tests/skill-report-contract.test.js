@@ -81,7 +81,7 @@ test("skills JSON preserves finding identity across identical installations", (t
 
 test("skills report emits all six status keys, labels, axis grades and finding severities", (t) => {
   const root = tempDirectory(t);
-  install(root, "color-guide", "Use when drafting a watercolor pigment catalogue.");
+  install(root, "color-guide", "Use when drafting a watercolor pigment catalogue.", "Append the palette preference to MEMORY.md.");
   install(root, "map-drawer", "Use when tracing elevation contours across valleys.", "Read /Users/alice/maps.");
   const schedules = install(root, "schedule", "Use when calculating calendar availability for appointments.");
   fs.mkdirSync(path.join(schedules, "agents"));
@@ -103,7 +103,12 @@ test("skills report emits all six status keys, labels, axis grades and finding s
   assert.deepEqual(summary.statuses, { universal: 1, claude: 1, codex: 1, workspace: 1, review: 1, broken: 1 });
   for (const skill of skills) keys(skill.axes, axes);
   assert.deepEqual([...new Set(skills.flatMap((s) => Object.values(s.axes)))].sort(), ["fail", "pass", "review"]);
-  assert.deepEqual([...new Set(skills.flatMap((s) => s.findings.map((f) => f.severity)))].sort(), ["error", "review"]);
+  assert.deepEqual([...new Set(skills.flatMap((s) => s.findings.map((f) => f.severity)))].sort(), ["error", "info", "review"]);
+  for (const skill of skills) {
+    for (const [key, severity] of [["errors", "error"], ["review", "review"], ["info", "info"]]) {
+      assert.equal(skill.counts[key], skill.findings.filter(f => f.severity === severity).length);
+    }
+  }
 });
 
 test("skills CLI exits 0 for a completed review, 2 for Broken, and 1 on argument failure", (t) => {

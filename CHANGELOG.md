@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.13.0] - 2026-11-26
+
+- Skills Checker now reports commands that run when a skill loads, hooks that run automatically and unrestricted Bash grants. These findings produce exit 2 so a caller can pause before installation.
+- The report shows long comments hidden in Markdown previews and points out installed skills with similar names. Both findings ask for review.
+- A skill hidden from the menu and an instruction to write to a standing settings or instruction file now appear as notes. The JSON report counts them under `counts.info`. They leave the skill's grades, verdict and exit code unchanged.
+
 ## [0.12.0] - 2026-11-26
 
 - Skills Checker now flags five more things to review before installing a skill. It points to downloads and decoded text passed to an interpreter, hidden or direction-changing characters, references to stored login secrets and settings that switch off safeguards.

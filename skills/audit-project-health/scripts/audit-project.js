@@ -12,7 +12,7 @@ const { relativeImportLiterals } = require("./import-context");
 const { parsePackage } = require("./package-text");
 const { pathNotice, groupPathNotices, humanReport } = require("./project-report");
 
-const CHECKER_VERSION = "0.12.0";
+const CHECKER_VERSION = "0.13.0";
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 2400,
   maxFileBytes: 512 * 1024,

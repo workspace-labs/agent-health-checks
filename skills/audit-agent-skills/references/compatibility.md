@@ -59,6 +59,18 @@ The three command checks in the table below read shell scripts (sh, bash and zsh
 - `decode-and-run` finds a decode followed by execution on the same line in a shell, Python or JavaScript example.
 - `safeguard-off` matches specific switches and settings that disable approvals, certificate verification or download protection.
 
+The following checks cover skill loading, permissions, Markdown, persistent changes and installed names.
+
+- `load-time-command` points to a command in the skill instructions that Claude Code runs when the skill loads.
+- `frontmatter-hooks` names the declared hooks so you can inspect which events run commands automatically.
+- `unrestricted-shell-grant` identifies a tool grant that pre-approves every Bash command.
+- `hidden-from-menu` notes that the agent can start a skill hidden from the skills menu.
+- `hidden-comment` counts long HTML comments hidden in a Markdown preview and shows the start of the first one.
+- `standing-file-write` notes an instruction to write to a file that can affect later sessions.
+- `look-alike-name` names another installed skill with a one-edit difference or matching look-alike characters.
+
+Of these seven checks, `load-time-command`, `frontmatter-hooks` and `unrestricted-shell-grant` produce exit 2. A hidden comment or a similar name requests review. The menu and standing-file checks print NOTE and count toward `counts.info`.
+
 | Language | Destructive operations | Execution | Network access |
 |---|---|---|---|
 | Shell | `rm` with recursive and force options together, including separate flags, quoted commands or flags, and a leading `sudo`. Also `find -delete`, `git reset --hard`, `git push --force` and `dd if=`. | A download from `curl` or `wget` piped to a shell. | `curl` and `wget` with or without options. Package installation with `npm install`, `npm i`, `npm ci`, `npx` with a package, `pip install`, `pip3 install` or `python -m pip install`. |

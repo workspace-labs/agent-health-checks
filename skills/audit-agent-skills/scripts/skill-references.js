@@ -4,54 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { comparePath, inside } = require("./skill-paths");
-
-function escapedMarkdown(text, at) {
-  let start = at;
-  while (start > 0 && text[start - 1] === "\\") start--;
-  return (at - start) % 2 === 1;
-}
-
-// Match equal-length backtick runs within a paragraph. Index each run once so an
-// unmatched opening tick cannot hide later links or force repeated forward scans.
-function inlineCodeLookup(lines) {
-  const starts = [], spans = [], runs = [], previous = new Map();
-  let offset = 0;
-  function finishParagraph() {
-    for (let i = 0; i < runs.length; i++) {
-      const open = runs[i];
-      if (open.escaped || open.next === undefined) continue;
-      const close = runs[open.next];
-      spans.push([open.at, close.at + close.width]);
-      i = open.next;
-    }
-    runs.length = 0;
-    previous.clear();
-  }
-  for (const line of lines) {
-    starts.push(offset);
-    if (!line.trim() || /^ {0,3}(?:`{3,}|~{3,})/.test(line)) {
-      finishParagraph();
-    } else {
-      for (const match of line.matchAll(/`+/g)) {
-        const width = match[0].length;
-        const prior = previous.get(width);
-        if (prior) prior.next = runs.length;
-        const run = { at: offset + match.index, width, escaped: escapedMarkdown(line, match.index) };
-        previous.set(width, run);
-        runs.push(run);
-      }
-    }
-    offset += line.length + 1;
-  }
-  finishParagraph();
-  let index = 0;
-  return (line, column) => {
-    const at = starts[line] + column;
-    while (index < spans.length && spans[index][1] <= at) index++;
-    if (index === spans.length || at < spans[index][0]) return "";
-    return at === spans[index][0] ? "opening" : "inside";
-  };
-}
+const { escapedMarkdown, inlineCodeLookup } = require("./skill-markdown-code");
 
 // Markdown destinations use the containing document. Instruction paths beginning with a
 // bundled folder or the skill-directory variable use the skill's installation directory.

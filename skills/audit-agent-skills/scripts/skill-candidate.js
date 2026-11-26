@@ -7,6 +7,9 @@ const { collectFiles, digestFiles } = require("./skill-files");
 const { markdownFile, referencesIn, referenceInspector, needsContents, indirectReferences } = require("./skill-references");
 const { personalPath, contentSafety } = require("./skill-safety");
 const { textSafetyFindings } = require("./skill-text-safety");
+const { markdownSafetyFindings } = require("./skill-markdown-safety");
+const { frontmatterPowers } = require("./skill-frontmatter-powers");
+const { standingFileFindings } = require("./skill-standing-file");
 
 const SHARED_FIELDS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
 const CLAUDE_FIELDS = new Set([
@@ -99,6 +102,7 @@ function auditCandidate(candidate, limits) {
   const name = scalar(fm.name) || folder;
   const description = scalar(fm.description);
   const raw = skillFile ? skillFile.text : "";
+  const skillBodyStart = raw.length - parsed.body.length;
   if (parsed.ok || parsed.issue?.code === "unverified-yaml") {
     if (!scalar(fm.name) && !parsed.unknownKeys && !parsed.unknownFields.has("name")) findings.push(finding("structure", "error", "missing-name", "Frontmatter is missing name", "SKILL.md", 2, "Add a name matching the skill folder."));
     if (!description && !parsed.unknownKeys && !parsed.unknownFields.has("description")) findings.push(finding("structure", "error", "missing-description", "Frontmatter is missing description", "SKILL.md", 2, "Describe what the skill does and when it should trigger."));
@@ -117,6 +121,8 @@ function auditCandidate(candidate, limits) {
     if (/(?:^|-)(?:anthropic|claude)(?:-|$)/i.test(name)) findings.push(finding("claude", "error", "claude-reserved-name", "Claude reserves 'anthropic' and 'claude' in custom skill names", "SKILL.md", lineOf(raw, "name:"), "Choose a model-neutral name."));
     checkFrontmatterFields(parsed, description, findings);
   }
+
+  findings.push(...frontmatterPowers(parsed));
 
   const capabilities = undeclaredCapabilities(scalar(fm.compatibility));
   const inspector = referenceInspector(dirReal);
@@ -151,7 +157,10 @@ function auditCandidate(candidate, limits) {
     if (destructive) findings.push(finding("safety", "review", "destructive-command", "Potentially destructive command appears in skill content", file.rel, destructive.line, "Confirm it is defensive documentation; otherwise remove it or require explicit human approval."));
     if (execution) findings.push(finding("safety", "review", "code-execution", `Bundled code contains an execution primitive: ${execution.text}`, file.rel, execution.line, "Audit the call path and inputs manually; static inspection cannot prove it safe."));
     if (network) findings.push(finding("safety", "review", "network-access", `Potential network access found: ${network.text}`, file.rel, network.line, "Verify destinations, data exposure, and user approval requirements."));
-    findings.push(...textSafetyFindings(file));
+    findings.push(...textSafetyFindings(file), ...standingFileFindings(file));
+    if (markdownFile(file.rel)) {
+      findings.push(...markdownSafetyFindings(file, skillBodyStart));
+    }
   }
 
   for (const file of indirectReferences(links)) {
@@ -187,7 +196,7 @@ function auditCandidate(candidate, limits) {
 
   const axes = {};
   for (const axis of AXES) {
-    const own = findings.filter((f) => f.axis === axis);
+    const own = findings.filter((f) => f.axis === axis && f.severity !== "info");
     axes[axis] = own.some((f) => f.severity === "error") ? "fail" : own.length ? "review" : "pass";
   }
   const source = sourceLocation(root, dir);

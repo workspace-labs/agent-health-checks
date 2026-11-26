@@ -57,12 +57,47 @@ test("explicit empty roots exit 1 while a populated companion root completes the
   assert.equal(cli("--root", folder, "--root", path.join(root, "absent")).status, 1);
 });
 
+for (const [code, fields, body, exit, level] of [
+  ["load-time-command", "", "Current state: !`echo fixture-inert`", 2, "REVIEW"],
+  ["frontmatter-hooks", "hooks:\n  Stop: []\n", "Read the record.", 2, "REVIEW"],
+  ["unrestricted-shell-grant", "allowed-tools: Read, Bash\n", "Read the record.", 2, "REVIEW"],
+  ["hidden-from-menu", "user-invocable: false\n", "Read the record.", 0, "NOTE"],
+  ["hidden-comment", "", "<!-- This record includes additional instructions for the reader. -->", 0, "REVIEW"],
+  ["standing-file-write", "", "Append the preference to MEMORY.md.", 0, "NOTE"],
+]) {
+  test("CLI reports " + code + " with the documented level and exit", t => {
+    const { root, folder } = fixture(t);
+    const head = "---\nname: notes\ndescription: Use when collecting observations for a field journal.\n";
+    fs.writeFileSync(path.join(folder, "SKILL.md"), head + fields + "---\n" + body);
+    const json = cliInHome(root, "--root", root, "--json");
+    const { skills: [skill], summary } = JSON.parse(json.stdout);
+    const item = skill.findings.find(f => f.code === code);
+    assert.ok(item, code);
+    assert.equal(json.status, exit);
+    const human = cliInHome(root, "--root", root);
+    assert.equal(human.status, exit);
+    assert.ok(human.stdout.includes(level + " safety · SKILL.md:" + item.line + " · " + item.message));
+    if (level === "NOTE") {
+      assert.equal(skill.axes.safety, "pass");
+      assert.equal(skill.counts.info, 1);
+      assert.equal(skill.counts.review, skill.findings.length - 1);
+    }
+    if (code === "standing-file-write") {
+      assert.deepEqual(skill.counts, { errors: 0, review: 0, info: 1 });
+      assert.equal(summary.findings, 1);
+      assert.equal(skill.status, "Universal");
+      assert.ok(Object.values(skill.axes).every(axis => axis === "pass"));
+    }
+  });
+}
+
 test("help names the three exit codes, and help and version each exit 0", () => {
   const help = cli("--help");
   assert.equal(help.status, 0);
   assert.equal(cli("--version").status, 0);
   for (const fragment of ["0", "1", "2", "--include-body", "Broken", "safety",
-    "download-and-run", "hidden-characters", "credential-access", "decode-and-run", "safeguard-off"]) {
+    "download-and-run", "hidden-characters", "credential-access", "decode-and-run", "safeguard-off",
+    "load-time-command", "frontmatter-hooks", "unrestricted-shell-grant"]) {
     assert.ok(help.stdout.includes(fragment), fragment);
   }
 });

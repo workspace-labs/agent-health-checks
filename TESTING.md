@@ -11,6 +11,49 @@ node --test
 
 Run from the repository root. The suite uses Node’s built-in test runner and creates its fixtures in the system temporary directory. See the dated runs below for the exact versions tested.
 
+## Step 8 Part 2 · 0.13.0 · 2026-11-26
+
+The clean `v0.12.0` baseline at `c77025d` passed 800 tests on macOS. Each new rule first failed against that baseline with its positive fixture. The info severity and the revised exit-code list also failed their new contract tests before implementation.
+
+On Apple silicon macOS, `node --test --test-concurrency=2 --test-reporter=tap` passed **873 of 873 tests** on each of Node **20.20.2**, **22.23.1**, **24.22.1** and **26.13.1**. Each run recorded zero failures, skips and cancellations and left its isolated home and temporary directory empty.
+
+### Supplied fixture comparison
+
+Both CLIs inspected identical copies of the TH4, TH5, TH7, TH9 and TH10 fixtures with a temporary home. The table counts fixture directories. Every affected skill in a triggering fixture produced exactly the expected new codes. Every control was clear of all seven codes. All 13 earlier finding objects in the supplied scripts matched in order, including messages, lines and suggestions.
+
+| Group | Triggering fixtures | Harmless controls | Observed result |
+|---|---:|---:|---|
+| TH4 | 4 / 4 | 4 / 4 | Both inline and fenced load commands were reported. The combined Bash fixture also received the broad-grant finding. |
+| TH5 | 6 / 6 | 5 / 5 | Three hook events, two broad grants and one hidden menu entry were reported with their earlier portability findings. |
+| TH7 | 3 / 3 | 5 / 5 | The checker found single-line, multiline and reference-file comments. |
+| TH9 | 5 / 5 | 4 / 4 | Each triggering skill had one info finding, all axes passed, the verdict was Universal and the CLI exited 0. |
+| TH10 | 4 / 4 | 3 / 3 | Both members of each pair received the finding. The script's separate non-Latin example also flagged both names and retained its original invalid-name error. |
+
+### Tests added or updated
+
+| File under `tests/` | What it checks |
+|---|---|
+| `skill-cli-output.test.js` | Verifies the new exit-2 codes in help and isolates each new safety code in the CLI. Checks NOTE, review and info counts, all six axes and exit 0 for a standing-file note. |
+| `skill-report-contract.test.js` | Exercises all three JSON severities alongside all six verdicts and checks each count against its findings. |
+| `skill-safety-markdown.test.js` | Tests load commands, comment counts and source lines, multiline excerpts, pragmas, code spans and fences, quoted and list examples, and resuming after a fence. |
+| `skill-frontmatter-powers.test.js` | Tests event names, shell grant formats and scopes, hidden menu declarations, YAML field boundaries and existing portability findings. |
+| `skill-standing-file.test.js` | Covers the listed write actions and targets, the 100-character limit, first evidence, look-alike filenames and read-only instructions. |
+| `skill-look-alike.test.js` | Checks edits and character folds, both members of each pair, deterministic evidence with multiple neighbours, duplicates, minimum length and exit 0. |
+
+### Read-only default toolbox comparison
+
+Both releases saw 80 unique skills and 56 identical mirrors. Both reported 38 Universal, 42 Needs review and zero in the other four categories, and both exited 2. Findings rose from 216 to 223. The 216 earlier findings matched field for field in their original order for every skill. Four skills gained standing-file notes, two gained hidden-comment findings and one gained a broad shell grant. The scan found zero look-alike pairs, load commands, frontmatter hooks or hidden menu entries.
+
+| Skill | File | Line | New code | Evidence |
+|---|---|---:|---|---|
+| `constraint-driven-development` | `SKILL.md` | 140 | `standing-file-write` | `AGENTS.md` |
+| `deep-research-pro` | `templates/report_template.md` | 3 | `hidden-comment` | 46 hidden comment(s), first excerpt `============================================================` |
+| `hidden-prompt-library` | `library/code/prompts.json` | 180 | `standing-file-write` | `.claude/settings.json` |
+| `mcp-builder` | `SKILL.md` | 76 | `standing-file-write` | `.mcp.json` |
+| `project-docs` | `references/plan.md` | 296 | `standing-file-write` | `CLAUDE.md` |
+| `security-review` | `SKILL.md` | 4 | `unrestricted-shell-grant` | `Bash` |
+| `security-review` | `SKILL.md` | 8 | `hidden-comment` | 1 hidden comment(s), first excerpt `Reference material based on OWASP Cheat Sheet Series (CC BY-` |
+
 ## Step 8 Part 1 · Fix round 1 · 0.12.0 · 2026-11-26
 
 The baseline at `d2f54a9` passed its 783 tests on Node 20.20.2. Before the fixes, each of the seven review examples missed its expected finding. On the corrected code, **800 of 800 tests passed** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1** on Apple silicon macOS. The command was `node --test --test-concurrency=2 --test-reporter=tap`. All four runs finished with zero failures, cancellations or skips and empty temporary home and scratch directories.
@@ -215,18 +258,19 @@ The inventory below was collected from **emitted reports** in disposable copies,
 
 Five project codes occur in both arrays, giving 47 distinct project codes. Skills coverage locations have a `kind` field and do not emit notice codes.
 
-**Skills Checker findings in 0.12.0 (50 codes)**
+**Skills Checker findings in 0.13.0 (57 codes)**
 
 `allowed-tools-extension`, `broken-reference`, `claude-description-angle-bracket`,
 `claude-name-angle-bracket`, `claude-reserved-name`, `code-execution`, `compatibility-too-long`,
 `credential-access`, `declared-dependency`, `decode-and-run`, `deep-reference`, `description-too-long`, `description-voice`,
 `destructive-command`, `download-and-run`, `duplicate-name`, `empty-body`, `extra-frontmatter-fields`,
-`folder-name-mismatch`, `hidden-characters`, `invalid-name`, `invalid-yaml`, `long-body`, `malformed-frontmatter`,
+`folder-name-mismatch`, `frontmatter-hooks`, `hidden-characters`, `hidden-comment`, `hidden-from-menu`,
+`invalid-name`, `invalid-yaml`, `load-time-command`, `long-body`, `look-alike-name`, `malformed-frontmatter`,
 `missing-description`, `missing-name`, `missing-skill-md`, `model-specific-tool`, `name-too-long`,
 `network-access`, `openai-default-prompt`, `openai-yaml-interface`, `oversized-file`, `personal-path`,
-`reference-no-toc`, `safeguard-off`, `scan-limit`, `symlink-root-escape`, `symlink-root-unresolved`, `symlink-skipped`,
+`reference-no-toc`, `safeguard-off`, `scan-limit`, `standing-file-write`, `symlink-root-escape`, `symlink-root-unresolved`, `symlink-skipped`,
 `symlink-unresolved`, `thin-description`, `unclear-trigger`, `unread-directory`, `unread-files`,
-`unreadable-directory`, `unreadable-file`, `unsupported-dependency-type`, `unverified-reference`,
+`unreadable-directory`, `unreadable-file`, `unrestricted-shell-grant`, `unsupported-dependency-type`, `unverified-reference`,
 `unverified-yaml`.
 
 **Project Checker findings**

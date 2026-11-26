@@ -10,8 +10,9 @@ const { overlapScore, closestDescriptions, descriptionCharacters } = require("./
 const { auditCandidate } = require("./skill-candidate");
 const { inspectRoot, hasGuide, discoveryDirectory, discoverInstalls, uncheckedLocations, refusedLink } = require("./skill-discovery");
 const { parseCli, compactSkill, terminalText, printHuman } = require("./skill-report");
+const { addLookAlikes } = require("./skill-look-alike");
 
-const CHECKER_VERSION = "0.12.0";
+const CHECKER_VERSION = "0.13.0";
 const DEFAULT_LIMITS = Object.freeze({ maxFiles: 320, maxFileBytes: 1024 * 1024, maxTotalBytes: 6 * 1024 * 1024 });
 
 function mergeInstallations(copies) {
@@ -130,6 +131,7 @@ function auditSkillRoots(options = {}) {
     skill.findings.push(finding("portability", "review", "duplicate-name", `${count} different skills share the name '${name}'`, "SKILL.md", 1, "Rename or consolidate the conflicting implementations."));
     skill.axes.portability = "review";
   }
+  addLookAlikes(byName);
   for (const skill of unique) {
     finalizeStatus(skill);
     const worst = worstCopy.get(skill);
@@ -159,6 +161,7 @@ if (require.main === module) {
   const exitTwoCodes = new Set([
     "destructive-command", "code-execution", "network-access", "download-and-run",
     "hidden-characters", "credential-access", "decode-and-run", "safeguard-off",
+    "load-time-command", "frontmatter-hooks", "unrestricted-shell-grant",
   ]);
   try {
     const cli = parseCli(process.argv.slice(2));

@@ -52,7 +52,7 @@ function printFindings(findings) {
       omitted += count;
       continue;
     }
-    const level = first.severity === "error" ? "ERROR" : "REVIEW";
+    const level = { error: "ERROR", review: "REVIEW", info: "NOTE" }[first.severity];
     const repeat = count > 1 ? ` ×${count}` : "";
     console.log(terminalText(`  ${level} ${first.axis} · ${first.file}:${first.line} · ${first.message}${repeat} · ${[...suggestions].join(" ")}`));
   }

@@ -14,7 +14,7 @@ Pass `--json` to either checker. Both reports use `schemaVersion: 1` and identif
 | `summary` | Counts of unique `skills`, identical `mirrors`, `findings`, and one count per key in `statuses`. |
 | `skills` | Array of unique skills. Copies with the same name and digest share an entry, retain findings from each installation and take the worst status. Multiple physical copies with the same name within one root raise a duplicate-name finding. A recognized linked installation adds a source to the target card. |
 
-Each skill contains `id`, `name`, `folder`, `description`, `digest`, `fileCount`, `totalBytes`, `sources`, `findings`, `axes`, `status`, `statusKey` and `counts` (`errors` and `review`).
+Each skill contains `id`, `name`, `folder`, `description`, `digest`, `fileCount`, `totalBytes`, `sources`, `findings`, `axes`, `status`, `statusKey` and `counts` (`errors`, `review` and `info`).
 
 **Command-line and module contract.** Since 0.9.0, `--json` replaces `body` and `frontmatter` with `bodyBytes` (UTF-8 length of the trimmed text) and `frontmatterBytes` (UTF-8 length of the compact JSON serialization of the parsed fields). The digest is available in both formats. Use `--json --include-body` for the complete skill objects. The synchronous module call `auditSkillRoots(options)` always includes the trimmed `body` and parsed `frontmatter`. The Workspace Skills page reads the body to draw links between skills.
 
@@ -39,14 +39,14 @@ The optional `summary.descriptionCharacters` has numeric `claude` and `codex` to
 |---|---|
 | `file`, `line` | **Identity.** Evidence path and one-based line. A missing instruction file can still be identified as `SKILL.md`, line 1. |
 | `code`, `message`, `axis` | **Identity.** Rule code, exact message text, and one of the six axes. |
-| `severity` | `error` or `review`. |
+| `severity` | `error`, `review` or `info`. An `info` finding prints as NOTE, counts toward `counts.info` and total findings, and leaves every axis, verdict and exit code unchanged. |
 | `suggestion` | Suggested next action. |
 
 Finding identity also includes the enclosing skill's **digest and list of install locations**. Each entry in `sources` contains the root's `id`, `label` and displayed `root`, the installed folder's `path` and the `skillMd` path. A linked install adds `isLink: true` to its source. Ordinary sources have the original five fields. Home-relative paths display with a leading `~`. The list preserves root traversal order. When a top-level install link identifies a skill deeper than normal discovery under overlapping roots, the most specific eligible root owns its target. Skills findings do not carry a separate finding ID or confidence level.
 
 The skill's `id` joins its name and digest with a colon. The digest is 64 lowercase hexadecimal characters. For an ordinary skill, sort scanned files by relative path in UTF-16 code-unit order. Omit `.DS_Store`, `Thumbs.db` and `desktop.ini`. Hash UTF-8 text with CRLF normalized to LF. Hash binary or non-UTF-8 files with their original bytes. Both use SHA-256. Use the marker `oversized:<size>` for an oversized file. Feed each relative path, a NUL byte, the hash or marker, and a final NUL byte into the outer SHA-256. A matching digest describes the scanned content. The unread findings give the extent of excluded content. For a refused root symlink, the hash input consists of the following NUL-separated values in order. It starts with the literal `skill-symlink-refusal`, rule code, entry name, displayed root, displayed link path, and either the resolution error code or the displayed resolved path.
 
-The terminal report starts with root states. A missing default root is quiet in the terminal. The JSON report includes the state of each requested root. A completed scan exits **0** with no Broken skill or open safety finding listed under exit 2. It exits **2** for any Broken skill or open `destructive-command`, `code-execution`, `network-access`, `download-and-run`, `hidden-characters`, `credential-access`, `decode-and-run` or `safeguard-off` finding. Exit **1** takes precedence for an unavailable explicit root, zero skills across all explicit roots, a usage error or a caught failure. Help and version requests exit **0**.
+The terminal report starts with root states. A missing default root is quiet in the terminal. The JSON report includes the state of each requested root. A completed scan exits **0** with no Broken skill or open safety finding listed under exit 2. It exits **2** for any Broken skill or open `destructive-command`, `code-execution`, `network-access`, `download-and-run`, `hidden-characters`, `credential-access`, `decode-and-run`, `safeguard-off`, `load-time-command`, `frontmatter-hooks` or `unrestricted-shell-grant` finding. Exit **1** takes precedence for an unavailable explicit root, zero skills across all explicit roots, a usage error or a caught failure. Help and version requests exit **0**.
 
 The CommonJS module exports the functions `auditSkillRoots`, `parseFrontmatter` and `overlapScore`, plus `AXES` and `DEFAULT_LIMITS`. The functions return their results synchronously.
 

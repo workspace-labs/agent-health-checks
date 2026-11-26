@@ -78,7 +78,7 @@ Project Checker accepts `--path`, `--id`, `--name`, `--profile workspace` and fo
 |---|---|---|
 | 0 | Scan finished with no Broken skill or open safety finding listed under exit 2. Review findings can still be present. | Healthy or Watch. |
 | 1 | Invalid usage, an unavailable explicit root, zero skills across all explicit roots, or a checker failure. | Invalid usage or an Unavailable report. |
-| 2 | A Broken skill or an open `destructive-command`, `code-execution`, `network-access`, `download-and-run`, `hidden-characters`, `credential-access`, `decode-and-run` or `safeguard-off` finding. | Needs attention. |
+| 2 | A Broken skill or an open `destructive-command`, `code-execution`, `network-access`, `download-and-run`, `hidden-characters`, `credential-access`, `decode-and-run`, `safeguard-off`, `load-time-command`, `frontmatter-hooks` or `unrestricted-shell-grant` finding. | Needs attention. |
 
 Both commands refuse unknown options. Run either with `--help` or `--version` alone for exit 0.
 
@@ -141,7 +141,7 @@ foreach ($name in $names) {
 
 **It never runs what it inspects.** Static evidence only — no executing bundled scripts, no network, no installs. You are inspecting something you don't yet trust; running it first is the wrong order.
 
-**Project Checker labels its certainty.** *Confirmed* means the static evidence demonstrates the issue. *Likely* calls for a runtime check. A *recommendation* identifies an improvement. Skills Checker uses the severity labels *error* and *review*.
+**Project Checker labels its certainty.** *Confirmed* means the static evidence demonstrates the issue. *Likely* calls for a runtime check. A *recommendation* identifies an improvement. Skills Checker uses the severity labels *error*, *review* and *info*. An *info* finding appears as *NOTE* in the terminal and leaves the verdict and exit code unchanged.
 
 **It fails closed and stays honest about its edges.** A link escaping its own folder is refused and reported, not followed. Scans are bounded — and whatever got skipped for size stays visible in the report rather than quietly counting as clean.
 
