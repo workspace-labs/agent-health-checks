@@ -29,6 +29,18 @@ The baseline at `1678b71` passed 873/873 tests on Node 20.20.2. All five review 
 
 **Read-only default toolbox.** Both scans reported 80 unique skills, 56 identical mirrors, 38 Universal, 42 Needs review, zero in every other status, 223 findings and exit 2. Only the `deep-research-pro` message at `templates/report_template.md:3` changed. The old message counted 46 comments and showed a divider. The new message reads `44 comment(s) hidden from previews; first: PROGRESSIVE FILE ASSEMBLY STRATEGY (2025 - Unlimited Length)`. All 222 other findings matched field for field. Apart from the generation timestamp, that message was the only difference between the complete compact JSON reports.
 
+### GitHub Actions for 0.13.0
+
+All nine jobs passed on commit `7dab337`. Each cell shows **passed / skipped** out of 886 tests. [GitHub Actions run 45870110239](https://github.com/workspace-labs/agent-health-checks/actions/runs/45870110239)
+
+| System | Node 20 | Node 22 | Node 24 |
+|---|---:|---:|---:|
+| macOS | 886 / 0 | 886 / 0 | 886 / 0 |
+| Ubuntu Linux | 885 / 1 | 885 / 1 | 885 / 1 |
+| Windows | 868 / 18 | 868 / 18 | 868 / 18 |
+
+Ubuntu skipped the alternate-home-spelling test on its case-sensitive filesystem. Windows skipped the 18 symbolic-link tests listed below. All three Windows jobs passed the README PowerShell installation check and verified that a second install preserved both installed copies. [Detailed skip list](#github-actions-for-0110)
+
 ## Step 8 Part 2 · 0.13.0 · 2026-11-26
 
 The clean `v0.12.0` baseline at `c77025d` passed 800 tests on macOS. Each new rule first failed against that baseline with its positive fixture. The info severity and the revised exit-code list also failed their new contract tests before implementation.
