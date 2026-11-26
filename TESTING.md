@@ -11,6 +11,44 @@ node --test
 
 Run from the repository root. The suite uses Node’s built-in test runner and creates its fixtures in the system temporary directory. See the dated runs below for the exact versions tested.
 
+## Step 8 Part 1 · 0.12.0 · 2026-11-26
+
+On Apple silicon macOS, `node --test --test-concurrency=2 --test-reporter=tap` passed **783 of 783 tests** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1**. There were zero failures, cancellations or skips. Each run finished with its temporary home and temporary-file directory empty.
+
+The new tests ran first against v0.11.0 at `423da76`. Each new code failed its isolated CLI test. The supplied examples were then scanned with both versions. All 31 triggering examples gained exactly their expected code, and all 22 controls were clear of the five new codes. For every example, the ordered list of earlier findings matched field for field, including file, line, message and suggestion.
+
+| Finding | Triggering examples detected | Harmless controls clear |
+|---|---:|---:|
+| `download-and-run` | 7 / 7 | 4 / 4 |
+| `hidden-characters` | 6 / 6 | 5 / 5 |
+| `credential-access` | 6 / 6 | 5 / 5 |
+| `decode-and-run` | 6 / 6 | 4 / 4 |
+| `safeguard-off` | 6 / 6 | 4 / 4 |
+
+An instrumented disposable copy captured finalized skill findings across all 383 Skills Checker tests. It emitted all 50 distinct codes in the inventory below.
+
+### Tests changed
+
+| File under `tests/` | What it proves |
+|---|---|
+| `skill-safety-pipelines.test.js` | Downloads and decodes must lead to execution on the same line. Covers prose, scripts, references, labelled and unlabelled fences, legacy findings, and controls that only download, decode or print text. |
+| `skill-safety-unicode.test.js` | Checks the first affected line and the total by Unicode code point. Controls include Arabic and Persian writing, a flag, family emoji, individual variation selectors and the initial BOM. |
+| `skill-safety-settings.test.js` | Checks the named credential stores, commands and safeguard settings. Public keys, environment setup advice, unrelated options and ordinary secure downloads serve as controls. |
+| `skill-safety-text.test.js` | Checks the 80-character evidence limit, first finding per rule per file, messages, suggestions and escaped invisible evidence in a quoted command. |
+| `skill-cli-output.test.js` | Each new code independently produces exit 2, appears in help and leaves the clean control at exit 0. The human report escapes control characters in command evidence. |
+| `skill-collection.test.js` | The download-to-shell fixture under each of four bundled directories gains the fourth finding alongside the three existing ones. |
+| `support/safety-text.js` | Runs the published CLI against temporary fixtures with an isolated home and removes the fixtures after each test. |
+
+### Read-only default toolbox scan
+
+Both runs saw the same 80 skill identities and 56 identical mirrors. Both reported 38 Universal and 42 Needs review, zero in all other status categories, and exit 2. Findings went from 213 to 216. All 213 earlier findings matched exactly. The three additions came from examples in `security-review`.
+
+| New code | File in the skill | Line | Evidence |
+|---|---|---:|---|
+| `credential-access` | `infrastructure/docker.md` | 375 | The Docker login configuration path |
+| `decode-and-run` | `references/supply-chain.md` | 235 | Python passes a base64 decode to exec |
+| `download-and-run` | `references/supply-chain.md` | 258 | A curl download goes directly to Bash |
+
 ## Step 7 Part 3 · 0.11.0 · 2026-11-26
 
 On macOS, `node --test --test-reporter=tap` passed **690 tests** on each of Node **20.20.2, 22.23.1, 24.22.1 and 26.13.1**, with zero failures, cancellations or skips. Every run had its own temporary home and temporary-file directory. Both directories were empty after each run.
@@ -147,16 +185,16 @@ The inventory below was collected from **emitted reports** in disposable copies,
 
 Five project codes occur in both arrays, giving 47 distinct project codes. Skills coverage locations have a `kind` field and do not emit notice codes.
 
-**Skills Checker findings**
+**Skills Checker findings in 0.12.0 (50 codes)**
 
 `allowed-tools-extension`, `broken-reference`, `claude-description-angle-bracket`,
 `claude-name-angle-bracket`, `claude-reserved-name`, `code-execution`, `compatibility-too-long`,
-`declared-dependency`, `deep-reference`, `description-too-long`, `description-voice`,
-`destructive-command`, `duplicate-name`, `empty-body`, `extra-frontmatter-fields`,
-`folder-name-mismatch`, `invalid-name`, `invalid-yaml`, `long-body`, `malformed-frontmatter`,
+`credential-access`, `declared-dependency`, `decode-and-run`, `deep-reference`, `description-too-long`, `description-voice`,
+`destructive-command`, `download-and-run`, `duplicate-name`, `empty-body`, `extra-frontmatter-fields`,
+`folder-name-mismatch`, `hidden-characters`, `invalid-name`, `invalid-yaml`, `long-body`, `malformed-frontmatter`,
 `missing-description`, `missing-name`, `missing-skill-md`, `model-specific-tool`, `name-too-long`,
 `network-access`, `openai-default-prompt`, `openai-yaml-interface`, `oversized-file`, `personal-path`,
-`reference-no-toc`, `scan-limit`, `symlink-root-escape`, `symlink-root-unresolved`, `symlink-skipped`,
+`reference-no-toc`, `safeguard-off`, `scan-limit`, `symlink-root-escape`, `symlink-root-unresolved`, `symlink-skipped`,
 `symlink-unresolved`, `thin-description`, `unclear-trigger`, `unread-directory`, `unread-files`,
 `unreadable-directory`, `unreadable-file`, `unsupported-dependency-type`, `unverified-reference`,
 `unverified-yaml`.

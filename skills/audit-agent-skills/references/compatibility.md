@@ -51,7 +51,13 @@ The scanner reads bounded text and metadata. It does not execute scripts, import
 
 ## Command checks
 
-The safety axis checks shell scripts (sh, bash and zsh), Node scripts (js, cjs, mjs and ts), Python scripts (py) and PowerShell scripts (ps1) anywhere in a skill. Markdown instruction files are checked inside labelled shell fences, including PowerShell fences. Markdown prose and data files such as CSV, TSV and JSON supply no command evidence.
+The three command checks in the table below read shell scripts (sh, bash and zsh), Node scripts (js, cjs, mjs and ts), Python scripts (py) and PowerShell scripts (ps1) anywhere in a skill. Markdown instruction files are checked inside labelled shell fences, including PowerShell fences. The five additional checks read the full text of every file within the same collection limits, including prose, inline examples, all fences and data files. Each code appears at most once per file.
+
+- `download-and-run` finds a download piped into an interpreter or used in a shell substitution that runs it.
+- `hidden-characters` counts tag characters outside flag sequences, direction controls and runs of zero-width characters or variation selectors. It reports their kinds and first line.
+- `credential-access` matches specific private login files, credential commands and environment output piped to a transfer tool.
+- `decode-and-run` finds a decode followed by execution on the same line in a shell, Python or JavaScript example.
+- `safeguard-off` matches specific switches and settings that disable approvals, certificate verification or download protection.
 
 | Language | Destructive operations | Execution | Network access |
 |---|---|---|---|

@@ -11,7 +11,7 @@ const { auditCandidate } = require("./skill-candidate");
 const { inspectRoot, hasGuide, discoveryDirectory, discoverInstalls, uncheckedLocations, refusedLink } = require("./skill-discovery");
 const { parseCli, compactSkill, terminalText, printHuman } = require("./skill-report");
 
-const CHECKER_VERSION = "0.11.0";
+const CHECKER_VERSION = "0.12.0";
 const DEFAULT_LIMITS = Object.freeze({ maxFiles: 320, maxFileBytes: 1024 * 1024, maxTotalBytes: 6 * 1024 * 1024 });
 
 function mergeInstallations(copies) {
@@ -156,6 +156,10 @@ function auditSkillRoots(options = {}) {
 }
 
 if (require.main === module) {
+  const exitTwoCodes = new Set([
+    "destructive-command", "code-execution", "network-access", "download-and-run",
+    "hidden-characters", "credential-access", "decode-and-run", "safeguard-off",
+  ]);
   try {
     const cli = parseCli(process.argv.slice(2));
     if (cli.version) {
@@ -164,8 +168,8 @@ if (require.main === module) {
     }
     if (cli.help) {
       console.log("Usage: node scripts/audit-skills.js [--json [--include-body]] [--root label=/absolute/path]...");
-      console.log("Exit 0: completed without Broken skills or open command safety findings. Help and version also exit 0.");
-      console.log("Exit 2: a Broken skill or an open destructive-command, code-execution or network-access finding.");
+      console.log("Exit 0: completed without Broken skills or open exit-2 safety findings. Help and version also exit 0.");
+      console.log("Exit 2: a Broken skill or an open safety finding with one of these codes: " + [...exitTwoCodes].join(", ") + ".");
       console.log("Exit 1: unavailable explicit root, zero skills across explicit roots, invalid usage or checker failure.");
       process.exit(0);
     }
@@ -175,8 +179,7 @@ if (require.main === module) {
       process.stdout.write(JSON.stringify(output, null, 2) + "\n");
     } else printHuman(report, cli.roots.length > 0);
     const rootError = cli.roots.length > 0 && (report.summary.skills === 0 || report.roots.some(root => root.state !== "read"));
-    const commandSafety = new Set(["destructive-command", "code-execution", "network-access"]);
-    const needsAttention = report.summary.statuses.broken || report.skills.some(skill => skill.findings.some(f => commandSafety.has(f.code)));
+    const needsAttention = report.summary.statuses.broken || report.skills.some(skill => skill.findings.some(f => exitTwoCodes.has(f.code)));
     process.exitCode = rootError ? 1 : needsAttention ? 2 : 0;
   } catch (error) {
     console.error(terminalText(`Skills Checker failed: ${error.message}`));

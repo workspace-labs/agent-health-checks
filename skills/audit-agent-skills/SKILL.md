@@ -48,7 +48,15 @@ Use Node.js 20 or later. A default run over 84 skills took about 0.6 seconds on 
 
 Use the terminal report for a person. For an agent, start with compact JSON. For a large inventory, redirect stdout to a file outside the collection and read the summary and selected findings first. The full-body option includes authored instructions.
 
-Exit 0 means the scan completed without a Broken skill or an open command safety finding. Help and version also exit 0. Exit 2 means a Broken skill or an open `destructive-command`, `code-execution` or `network-access` finding. Exit 1 means an unavailable explicit root, zero skills across all explicit roots, a usage error or a checker failure. Read the root states or diagnostic, correct the path, access or option, and run again. A scan-limit finding marks partial coverage. Report the unread count and any named paths. A retry on a single skill can help isolate the limit.
+Exit 0 means the scan completed without a Broken skill or an open safety finding listed under exit 2. Help and version also exit 0. Exit 2 means a Broken skill or an open `destructive-command`, `code-execution`, `network-access`, `download-and-run`, `hidden-characters`, `credential-access`, `decode-and-run` or `safeguard-off` finding. Exit 1 means an unavailable explicit root, zero skills across all explicit roots, a usage error or a checker failure. Read the root states or diagnostic, correct the path, access or option, and run again. A scan-limit finding marks partial coverage. Report the unread count and any named paths. A retry on a single skill can help isolate the limit.
+
+Five findings can come from any text the scan reads, including quoted examples. Read the cited line in context.
+
+- `download-and-run` points to a download passed directly to an interpreter.
+- `hidden-characters` gives the count and kinds of invisible or direction-changing characters, starting at the first affected line.
+- `credential-access` identifies a named login store, a credential lookup command or a pipe from the environment to a transfer command.
+- `decode-and-run` points to text decoded and passed to a shell or evaluation function on the same line.
+- `safeguard-off` identifies an option or setting that disables approvals, certificate checks or platform protection.
 
 Each skill gets one verdict.
 

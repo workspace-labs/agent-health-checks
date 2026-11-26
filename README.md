@@ -76,9 +76,9 @@ Project Checker accepts `--path`, `--id`, `--name`, `--profile workspace` and fo
 
 | Exit | Skills Checker | Project Checker |
 |---|---|---|
-| 0 | Scan finished with no Broken skill or open command safety finding. Review findings can still be present. | Healthy or Watch. |
+| 0 | Scan finished with no Broken skill or open safety finding listed under exit 2. Review findings can still be present. | Healthy or Watch. |
 | 1 | Invalid usage, an unavailable explicit root, zero skills across all explicit roots, or a checker failure. | Invalid usage or an Unavailable report. |
-| 2 | A Broken skill or an open `destructive-command`, `code-execution` or `network-access` finding. | Needs attention. |
+| 2 | A Broken skill or an open `destructive-command`, `code-execution`, `network-access`, `download-and-run`, `hidden-characters`, `credential-access`, `decode-and-run` or `safeguard-off` finding. | Needs attention. |
 
 Both commands refuse unknown options. Run either with `--help` or `--version` alone for exit 0.
 

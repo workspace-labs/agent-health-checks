@@ -6,6 +6,7 @@ const { lineOf, scalar, readYaml, parseFrontmatter, yamlFinding } = require("./s
 const { collectFiles, digestFiles } = require("./skill-files");
 const { markdownFile, referencesIn, referenceInspector, needsContents, indirectReferences } = require("./skill-references");
 const { personalPath, contentSafety } = require("./skill-safety");
+const { textSafetyFindings } = require("./skill-text-safety");
 
 const SHARED_FIELDS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
 const CLAUDE_FIELDS = new Set([
@@ -150,6 +151,7 @@ function auditCandidate(candidate, limits) {
     if (destructive) findings.push(finding("safety", "review", "destructive-command", "Potentially destructive command appears in skill content", file.rel, destructive.line, "Confirm it is defensive documentation; otherwise remove it or require explicit human approval."));
     if (execution) findings.push(finding("safety", "review", "code-execution", `Bundled code contains an execution primitive: ${execution.text}`, file.rel, execution.line, "Audit the call path and inputs manually; static inspection cannot prove it safe."));
     if (network) findings.push(finding("safety", "review", "network-access", `Potential network access found: ${network.text}`, file.rel, network.line, "Verify destinations, data exposure, and user approval requirements."));
+    findings.push(...textSafetyFindings(file));
   }
 
   for (const file of indirectReferences(links)) {

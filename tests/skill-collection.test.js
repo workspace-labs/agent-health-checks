@@ -112,7 +112,7 @@ for (const directory of ["dist", "build", "vendor", "scripts"]) {
     const skill = scan(root);
     assert.equal(skill.status, "Needs review");
     assert.deepEqual(skill.findings.map(f => [f.code, f.file]).sort(), [
-      ["code-execution", relative], ["destructive-command", relative], ["network-access", relative],
+      ["code-execution", relative], ["destructive-command", relative], ["download-and-run", relative], ["network-access", relative],
     ]);
     fs.writeFileSync(path.join(root, "paper-trail", relative), "echo hello\n");
     assert.equal(scan(root).status, "Universal");

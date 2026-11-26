@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.12.0] - 2026-11-26
+
+- Skills Checker now flags five more things to review before installing a skill. It points to downloads and decoded text passed to an interpreter, hidden or direction-changing characters, references to stored login secrets and settings that switch off safeguards.
+- These checks read prose, inline examples, code blocks and other text files. Each finding names the file and line so a person can distinguish an instruction from an example. Any of the five findings gives a completed scan exit code 2.
+
 ## [0.11.0] - 2026-11-26
 
 - Skills Checker lists description pairs only when they share job words. It recognizes files named directly in the skill guide, including filenames written in ordinary text, so those files no longer receive an indirect-reference warning.
